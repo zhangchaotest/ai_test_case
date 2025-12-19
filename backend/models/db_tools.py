@@ -93,33 +93,40 @@ def get_requirement_by_id(req_id: int):
     return dict(row) if row else None
 
 
-def get_test_cases_by_req_id(req_id: int):
+# backend/db_tools.py
+
+def get_test_cases(req_id: int = None, title: str = None):
+    """通用查询用例函数：支持按 req_id 筛选，或者查全部"""
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM test_cases WHERE requirement_id = ?", (req_id,))
+
+    sql = "SELECT * FROM test_cases WHERE 1=1"
+    params = []
+
+    if req_id:
+        sql += " AND requirement_id = ?"
+        params.append(req_id)
+
+    if title:
+        sql += " AND case_title LIKE ?"
+        params.append(f"%{title}%")
+
+    sql += " ORDER BY id DESC"  # 倒序排列，新的在前面
+
+    cursor.execute(sql, tuple(params))
 
     rows = []
     for row in cursor.fetchall():
-        # 将 row 转为字典
         d = dict(row)
+        # 复用之前的安全解析逻辑
+        d['steps'] = safe_json_loads(d.get('steps')) or []
+        d['test_data'] = safe_json_loads(d.get('test_data')) or {}
 
-        # --- 🔥 修复核心：健壮的 JSON 解析 ---
-        steps_obj = safe_json_loads(d.get('steps'))
-        # 如果解析失败或为空，给一个默认空列表，防止前端崩坏
-        d['steps'] = steps_obj if isinstance(steps_obj, list) else []
-
-        test_data_obj = safe_json_loads(d.get('test_data'))
-        d['test_data'] = test_data_obj if isinstance(test_data_obj, dict) else {}
-
-        # --- 🔥 修复核心：防止字段缺失导致 Pydantic 报错 ---
-        # 如果是旧数据，可能没有 priority 字段，手动给默认值
-        if 'priority' not in d or not d['priority']:
-            d['priority'] = 'P1'
-        if 'case_type' not in d or not d['case_type']:
-            d['case_type'] = 'Functional'
-        if 'status' not in d:
-            d['status'] = 'Active'
+        # 补全默认字段防止报错
+        d.setdefault('priority', 'P1')
+        d.setdefault('case_type', 'Functional')
+        d.setdefault('status', 'Active')
 
         rows.append(d)
 
@@ -143,22 +150,42 @@ def save_verified_test_case(
     """
     [给评审Agent用] 将评审通过的测试用例保存到数据库。
     """
+    print(f"⚡️ [DEBUG] 正在尝试保存用例: {case_title}") # <--- 加这行
+
     try:
         # 1. 将列表转换为 JSON 字符串存库
         # ensure_ascii=False 保证存进去的是中文，不是 \uXXXX
         steps_json = json.dumps(steps, ensure_ascii=False)
 
+        # 🔥🔥🔥 2. 修复点：处理 test_data (新增)
+        # 必须把字典转成字符串，SQLite 才能存
+        test_data_json = json.dumps(test_data, ensure_ascii=False) if test_data else "{}"
+
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         cursor.execute(
             """INSERT INTO test_cases
-                   (requirement_id, case_title, pre_condition, steps, expected_result,priority,case_type,test_data)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            (requirement_id, case_title, pre_condition, steps_json, expected_result,priority,case_type,test_data)
+               (requirement_id, case_title, pre_condition, steps, expected_result,
+                priority, case_type, test_data, status)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                requirement_id,
+                case_title,
+                pre_condition,
+                steps_json,  # 存字符串
+                expected_result,
+                priority,
+                case_type,
+                test_data_json,  # 🔥 存字符串 (原本这里传了 dict 导致报错)
+                "Active"
+            )
         )
         conn.commit()
         cid = cursor.lastrowid
         conn.close()
+        print(f"✅ [DEBUG] 保存成功 ID: {cursor.lastrowid}") # <--- 加这行
         return f"✅ 用例已入库 (ID: {cid})"
+
     except Exception as e:
+        print(f"❌ [DEBUG] 数据库保存报错: {str(e)}")      # <--- 加这行！！
         return f"❌ 入库失败: {e}"

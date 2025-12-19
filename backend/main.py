@@ -1,4 +1,5 @@
 from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi.responses import StreamingResponse # 🔥 必须引入这个，进行流式输出
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List
 from models import db_tools
@@ -62,6 +63,22 @@ from typing import Optional
 def list_test_cases(req_id: Optional[int] = None, title: Optional[str] = None):
     """获取测试用例列表（支持筛选）"""
     return db_tools.get_test_cases(req_id=req_id, title=title)
+
+
+@app.get("/requirements/{req_id}/generate_stream")
+async def generate_cases_stream(req_id: int):
+    """
+    流式生成接口
+    """
+    req = db_tools.get_requirement_by_id(req_id)
+    if not req:
+        raise HTTPException(status_code=404, detail="Requirement not found")
+
+    # 返回流式响应，media_type 必须是 text/event-stream
+    return StreamingResponse(
+        agent_manager.run_stream_task(req_id, req['feature_name'], req['description']),
+        media_type="text/event-stream"
+    )
 if __name__ == "__main__":
     import uvicorn
 
