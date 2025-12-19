@@ -51,7 +51,17 @@ def get_cases(req_id: int):
     print(req_id)
     return db_tools.get_test_cases_by_req_id(req_id)
 
+# backend/main.py
 
+from typing import Optional
+
+# ... 其他代码 ...
+
+# 🔥 新增这个接口
+@app.get("/cases", response_model=List[models.TestCaseResponse])
+def list_test_cases(req_id: Optional[int] = None, title: Optional[str] = None):
+    """获取测试用例列表（支持筛选）"""
+    return db_tools.get_test_cases(req_id=req_id, title=title)
 if __name__ == "__main__":
     import uvicorn
 
