@@ -1,5 +1,6 @@
 import asyncio
 import json
+import re
 
 from autogen_agentchat.teams import RoundRobinGroupChat
 from autogen_agentchat.conditions import TextMentionTermination
@@ -67,15 +68,24 @@ async def run_generation_task(req_id: int, feature_name: str, desc: str):
     return True
 
 
+AGENT_NAMES = {
+    "test_generator": "✍️ 用例设计专家",
+    "test_reviewer": "🧐 质量评审组长",
+    "user": "用户指令"
+}
+
+TOOL_NAMES = {
+    "save_verified_test_case": "💾 数据库入库"
+}
+
+
 async def run_stream_task(req_id: int, feature_name: str, desc: str):
-    """
-    生成器函数：流式返回 AutoGen 的运行日志
-    """
     generator = create_test_generator()
     reviewer = create_test_reviewer()
-
     termination = TextMentionTermination("TERMINATE")
-    team = RoundRobinGroupChat([generator, reviewer], termination_condition=termination, max_turns=12)
+
+    # 增加轮次，防止截断
+    team = RoundRobinGroupChat([generator, reviewer], termination_condition=termination, max_turns=20)
 
     task_prompt = f"""
     【任务】为功能点编写测试用例并入库。
@@ -85,85 +95,162 @@ async def run_stream_task(req_id: int, feature_name: str, desc: str):
     注意：保存时 requirement_id 必须为 {req_id}。
     """
 
-    print(f"🚀 [Stream Start] 开始处理需求 {req_id}")
+    print(f"🚀 [Stream] 开始处理 ID: {req_id}")
+
+    count_generated = 0
+    count_saved = 0
 
     try:
-        # 迭代 AutoGen 的流式输出
         async for message in team.run_stream(task=task_prompt):
-            output_data = {}
+            output_data = None
+
+            # 转为字典，方便统一处理
+            msg_dict = message.model_dump()
 
             # -------------------------------------------------
-            # 1. 文本消息 (Agent 的思考和对话)
+            # 场景 1: Agent 文本消息
             # -------------------------------------------------
             if isinstance(message, TextMessage):
-                print(f"   -> [Text] {message.source}: {message.content[:20]}...")
+                if "TERMINATE" in message.content or message.source == "user":
+                    continue
 
-                # 如果是结束指令，发送 finish 事件
-                if "TERMINATE" in message.content:
-                    yield format_sse("finish", "生成结束")
-                    break  # 退出循环
+                source_name = AGENT_NAMES.get(message.source, message.source)
+                content_display = "正在思考..."
 
-                output_data = {
-                    "type": "log",
-                    "source": message.source,
-                    "content": message.content
-                }
+                # 如果文本里包含标题，也可以作为补充显示
+                if message.source == "test_generator":
+                    titles = re.findall(r'["\']case_title["\']\s*:\s*["\'](.*?)["\']', message.content, re.IGNORECASE)
+                    if titles:
+                        content_display = f"正在构思用例: {titles[0]} 等..."
+                    else:
+                        content_display = "正在解析需求并构建 JSON..."
+
+                output_data = {"type": "log", "source": source_name, "content": content_display}
 
             # -------------------------------------------------
-            # 2. 工具调用请求 (Reviewer 决定调用工具)
-            # 🔥🔥🔥 修复点：属性名改为了 .tool_calls
+            # 场景 2: 工具调用请求 (🔥 针对你的日志结构重写)
             # -------------------------------------------------
             elif isinstance(message, ToolCallRequestEvent):
-                print(f"   -> [Tool Call Request] {message.source}")
+                # 1. 获取工具调用列表
+                # 根据你的日志，数据在 'content' 字段里，且是列表
+                calls = []
 
-                # 获取工具名称 (加个 try 防止列表为空)
-                try:
-                    # 旧版本是 model_client_tool_calls，新版本是 tool_calls
-                    tool_name = message.tool_calls[0].function.name
-                except (AttributeError, IndexError):
-                    tool_name = "Unknown Tool"
+                # 优先检查 tool_calls (新版标准)
+                if msg_dict.get('tool_calls'):
+                    calls = msg_dict['tool_calls']
+                # 其次检查 content (你的日志结构)
+                elif isinstance(msg_dict.get('content'), list):
+                    calls = msg_dict['content']
 
-                output_data = {
-                    "type": "tool_call",
-                    "source": message.source,
-                    "content": f"正在调用工具: {tool_name}..."
-                }
+                if calls:
+                    tool_names = []
+                    generated_titles = []
+
+                    for call in calls:
+                        # --- A. 提取工具名 ---
+                        # 你的日志里是 {'name': 'save_verified_test_case', ...}
+                        # 标准版可能是 {'function': {'name': ...}}
+                        raw_name = "Unknown"
+                        if isinstance(call, dict):
+                            raw_name = call.get('name') or call.get('function', {}).get('name')
+                        elif hasattr(call, 'function'):
+                            raw_name = call.function.name
+
+                        friendly_name = TOOL_NAMES.get(raw_name, raw_name)
+                        tool_names.append(friendly_name)
+
+                        # --- B. 提取参数中的标题 (用于统计生成数) ---
+                        # 参数通常在 'arguments' 字段，是 JSON 字符串
+                        try:
+                            args_str = call.get('arguments', '{}')
+                            args = json.loads(args_str)
+                            if 'case_title' in args:
+                                generated_titles.append(args['case_title'])
+                        except:
+                            pass
+
+                    # 更新统计
+                    batch_count = len(generated_titles)
+                    count_generated += batch_count
+
+                    # 构造显示文本
+                    unique_names = list(set(tool_names))
+                    display_text = f"正在调用: {','.join(unique_names)}"
+                    if batch_count > 0:
+                        # 如果提取到了标题，显示出来
+                        title_preview = "、".join(generated_titles[:2])
+                        if batch_count > 2: title_preview += f" 等 {batch_count} 个"
+                        display_text += f"\n📦 包含用例: {title_preview}"
+
+                    output_data = {
+                        "type": "tool_call",
+                        "source": "系统调用",
+                        "content": display_text
+                    }
+                else:
+                    print(f"⚠️ [DEBUG] 未能解析工具列表: {msg_dict}")
 
             # -------------------------------------------------
-            # 3. 工具执行结果 (数据库操作返回)
+            # 场景 3: 工具执行结果 (统计入库数)
             # -------------------------------------------------
             elif isinstance(message, ToolCallExecutionEvent):
-                print(f"   -> [Tool Result]")
+                # 获取结果列表
+                results = msg_dict.get('tool_call_results') or []
 
-                # 获取执行结果
-                try:
-                    result = message.tool_call_results[0].content
-                except (AttributeError, IndexError):
-                    result = "执行完成 (无返回内容)"
+                # 你的日志里没有展示这部分的详细结构，通常是在 tool_call_results 或者是 content
+                if not results and isinstance(msg_dict.get('content'), list):
+                    results = msg_dict.get('content')
 
-                output_data = {
-                    "type": "tool_result",
-                    "source": "System",
-                    "content": f"执行结果: {str(result)}"
-                }
+                success_ids = []
 
-            # -------------------------------------------------
-            # 发送 SSE 数据块
-            # -------------------------------------------------
+                for res in results:
+                    # 结果内容可能在 content 字段
+                    if isinstance(res, dict):
+                        res_content = str(res.get('content', ''))
+                    else:
+                        res_content = str(getattr(res, 'content', ''))
+
+                    if "ID:" in res_content:
+                        # 提取 ID
+                        match = re.search(r'ID:\s*(\d+)', res_content)
+                        if match:
+                            success_ids.append(match.group(1))
+
+                success_count = len(success_ids)
+                count_saved += success_count
+
+                if success_count > 0:
+                    id_str = ",".join(success_ids)
+                    output_data = {
+                        "type": "tool_result",
+                        "source": "数据库",
+                        "content": f"✅ 成功入库 {success_count} 条 (ID: {id_str})"
+                    }
+                else:
+                    # 如果没找到 ID，打印一下原始返回方便调试
+                    first_res = str(results[0]) if results else "无数据"
+                    output_data = {
+                        "type": "tool_result",
+                        "source": "数据库",
+                        "content": f"⚠️ 执行完成 (未检测到ID返回)"
+                    }
+
             if output_data:
-                # 必须转成 json 字符串，并用 utf-8 编码，防止中文乱码问题
-                json_str = json.dumps(output_data, ensure_ascii=False)
-                yield format_sse("message", json_str)
+                yield format_sse("message", json.dumps(output_data, ensure_ascii=False))
 
     except Exception as e:
-        print(f"❌ [Stream Error] {e}")
-        # 将错误信息发给前端显示
-        err_data = json.dumps({
-            "type": "log",
-            "source": "System Error",
-            "content": f"流式生成出错: {str(e)}"
-        }, ensure_ascii=False)
-        yield format_sse("message", err_data)
+        print(f"❌ Error: {e}")
+        yield format_sse("message", json.dumps({
+            "type": "log", "source": "系统错误", "content": str(e)
+        }, ensure_ascii=False))
+
+    # --- 📊 最终报表 ---
+    summary_data = json.dumps({
+        "generated": count_generated,
+        "saved": count_saved
+    }, ensure_ascii=False)
+
+    yield format_sse("finish", summary_data)
 
 
 def format_sse(event: str, data: str):
@@ -171,3 +258,4 @@ def format_sse(event: str, data: str):
     # 移除换行符，防止破坏 SSE 协议格式
     clean_data = data.replace("\n", "\\n")
     return f"event: {event}\ndata: {clean_data}\n\n"
+

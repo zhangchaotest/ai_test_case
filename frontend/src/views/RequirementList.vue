@@ -195,39 +195,52 @@ const openGenerateDrawer = async (row) => {
 }
 
 // 解析 SSE 格式的数据 (data: {...})
-// 🔥 新的解析函数：专门处理 event 和 data 分离的情况
 const parseSSEMessage = (messageString) => {
   const lines = messageString.split('\n')
   let eventType = 'message'
   let dataStr = ''
 
   for (const line of lines) {
-    if (line.startsWith('event: ')) {
-      eventType = line.replace('event: ', '').trim()
-    } else if (line.startsWith('data: ')) {
-      dataStr = line.replace('data: ', '').trim()
-    }
+    if (line.startsWith('event: ')) eventType = line.replace('event: ', '').trim()
+    else if (line.startsWith('data: ')) dataStr = line.replace('data: ', '').trim()
   }
 
-  // 1. 如果是结束信号
-  if (eventType === 'finish') return
+  // 🔥 核心修改：处理 finish 事件的统计数据
+  if (eventType === 'finish') {
+    try {
+      const stats = JSON.parse(dataStr)
+      addLog(`✨ 任务完成报告：`, 'success')
+      addLog(`📊 共设计用例: ${stats.generated} 条`, 'success')
+      addLog(`💾 成功入库: ${stats.saved} 条`, 'success')
+    } catch (e) {
+      addLog('✨ 所有任务执行完毕！', 'success')
+    }
+    return
+  }
 
-  // 2. 如果有数据，尝试解析 JSON
   if (dataStr) {
     try {
-      // 兼容处理：有时候后端传来的 \\n 需要前端还原（JSON.parse通常会自动处理，但为了保险）
       const data = JSON.parse(dataStr)
 
       if (data.type === 'log') {
-         // 内容可能包含 markdown，直接展示
-         addLog(`🤖 [${data.source}]:\n${data.content}`)
-      } else if (data.type === 'tool_call') {
-         addLog(`🛠️ ${data.content}`, 'warning')
-      } else if (data.type === 'tool_result') {
-         addLog(`💾 ${data.content}`, 'success')
+        // 如果是“正在思考...”，可以选择不显示，或者用灰色显示
+        if (data.content === '正在思考...') return
+        addLog(`${data.source}: ${data.content}`, 'info')
+      }
+      else if (data.type === 'tool_call') {
+        addLog(`🛠️ ${data.content}`, 'warning')
+      }
+      else if (data.type === 'tool_result') {
+        // 🔥 优化：如果内容包含 "成功" 或 "✅"，强制使用 success (绿色) 样式
+        if (data.content.includes('成功') || data.content.includes('✅')) {
+           addLog(`${data.content}`, 'success')
+        } else {
+           // 只有真正的报错或未知结果才用 warning (黄色)
+           addLog(`⚠️ ${data.content}`, 'warning')
+        }
       }
     } catch (e) {
-      console.warn('JSON解析忽略:', dataStr)
+      console.warn('解析失败', dataStr)
     }
   }
 }
@@ -267,6 +280,9 @@ onMounted(() => {
 </script>
 
 <style scoped>
+/* =========================
+   1. 页面整体布局
+   ========================= */
 .view-container {
   background: #fff;
   padding: 0;
@@ -290,95 +306,103 @@ onMounted(() => {
   justify-content: flex-end;
 }
 
-/* 黑色控制台风格 */
+/* =========================
+   2. 控制台 (Console) 容器风格
+   ========================= */
 .console-box {
   background: #1e1e1e;
-  color: #00ff00;
-  border-radius: 4px;
-  height: 400px;
+  color: #e0e0e0; /* 默认文字颜色：浅灰 */
+  border-radius: 8px;
+  height: 500px; /* 统一高度 */
   display: flex;
   flex-direction: column;
-  font-family: 'Courier New', Courier, monospace;
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace; /* 统一字体栈 */
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  border: 1px solid #333;
 }
 
 .console-header {
-  background: #333;
+  background: #2d2d2d;
   color: #fff;
-  padding: 5px 10px;
-  font-size: 12px;
+  padding: 10px 15px;
+  border-bottom: 1px solid #444;
+  font-size: 13px;
+  font-weight: bold;
+  letter-spacing: 1px;
 }
 
 .console-content {
-  padding: 10px;
-  overflow-y: auto;
-  flex: 1;
+  padding: 15px;
+  overflow-y: auto; /* 允许纵向滚动 */
+  flex: 1; /* 占满剩余空间 */
+  background: #1e1e1e;
 }
 
+/* =========================
+   3. 日志行与消息样式
+   ========================= */
 .log-line {
-  margin: 4px 0;
-  font-size: 13px;
-  line-height: 1.4;
+  display: flex; /* 使用 Flex 布局让时间和内容对齐 */
+  align-items: flex-start;
+  margin-bottom: 8px; /* 增加行间距 */
+  border-bottom: 1px dashed #333; /* 增加分隔线方便阅读 */
+  padding-bottom: 6px;
+  font-size: 14px;
+  line-height: 1.6;
 }
 
 .log-time {
-  color: #888;
-  margin-right: 8px;
+  color: #666; /* 时间显示为暗灰色 */
+  margin-right: 12px;
+  font-size: 12px;
+  min-width: 70px; /* 固定时间宽度，防止对不齐 */
+  user-select: none; /* 防止复制时选中时间 */
 }
 
+.log-msg {
+  white-space: pre-wrap; /* 🔥 关键：让 \n 能够换行显示 */
+  word-break: break-all; /* 防止长单词撑破容器 */
+  flex: 1;
+}
+
+/* =========================
+   4. 消息颜色定义 (语义化)
+   ========================= */
+/* 专家/Agent 说话：亮绿色 */
+.log-msg.info {
+  color: #a6e22e;
+}
+
+/* 工具调用：黄色 + 斜体 */
+.log-msg.warning {
+  color: #f1c40f;
+  font-style: italic;
+}
+
+/* 成功结果：深绿色 + 加粗 */
+.log-msg.success {
+  color: #2ecc71;
+  font-weight: bold;
+}
+
+/* 错误信息：红色 */
+.log-msg.danger {
+  color: #f56c6c;
+}
+
+/* =========================
+   5. 动画效果 (光标闪烁)
+   ========================= */
 .loading-cursor {
   display: inline-block;
+  margin-left: 5px;
+  color: #409eff;
+  font-weight: bold;
   animation: blink 1s infinite;
 }
 
 @keyframes blink {
-  50% {
-    opacity: 0;
-  }
-}
-
-.log-msg {
-  white-space: pre-wrap;
-  word-break: break-all;
-}
-
-.log-msg.info {
-  color: #fff;
-}
-
-/* 普通思考: 白色 */
-.log-msg.warning {
-  color: #e6a23c;
-}
-
-/* 工具调用: 黄色 */
-.log-msg.success {
-  color: #67c23a;
-}
-
-/* 保存成功: 绿色 */
-
-.console-content {
-  padding: 10px;
-  overflow-y: auto;
-  flex: 1;
-  background: #1e1e1e;
-  border: 1px solid #333;
-}
-/* 关键样式：保留空格和换行 */
-.log-msg {
-  white-space: pre-wrap; /* 🔥 关键：让 \n 能够换行显示 */
-  word-break: break-all;
-  line-height: 1.5;
-  font-family: Consolas, Monaco, monospace; /* 使用等宽字体，显示代码更好看 */
-}
-
-.log-msg.warning { color: #e6a23c; }  /* 黄色 */
-.log-msg.success { color: #67c23a; }  /* 绿色 */
-.log-msg.danger { color: #f56c6c; }   /* 红色 */
-
-.log-line {
-  margin-bottom: 8px; /* 增加行间距 */
-  border-bottom: 1px dashed #333; /* 增加分隔线方便阅读 */
-  padding-bottom: 4px;
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
 }
 </style>
