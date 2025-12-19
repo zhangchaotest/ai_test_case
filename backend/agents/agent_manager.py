@@ -4,6 +4,7 @@ from autogen_agentchat.conditions import TextMentionTermination
 # 导入你之前的定义
 from backend.agents.llm_factory import get_gemini_client
 from backend.models.db_tools import save_verified_test_case
+from autogen_agentchat.ui import Console  # <--- 1. 引入这个
 
 # 这里复用你之前写的 create_test_generator 和 create_test_reviewer
 # 为了代码简洁，我假设它们定义在这个文件里或从 my_agents 导入
@@ -57,5 +58,7 @@ async def run_generation_task(req_id: int, feature_name: str, desc: str):
     """
 
     # 运行
-    await team.run(task=task_prompt)
+    await Console(team.run_stream(task=task_prompt))
+    print(f"--- 处理结束 ---")
+
     return True
