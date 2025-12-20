@@ -20,6 +20,13 @@
           <el-button :icon="Refresh" @click="resetFilters">重置</el-button>
           <el-button type="success" :icon="Download" @click="handleExport">导出</el-button>
         </el-form-item>
+        <el-form-item>
+          <div class="config-panel" style="margin-bottom: 10px; display: flex; align-items: center; gap: 10px;">
+            <span>生成数量目标：</span>
+            <el-input-number v-model="targetCount" :min="5" :max="50" size="small"/>
+            <el-tag type="info" size="small">建议 5-10 条，复杂需求可调大</el-tag>
+          </div>
+        </el-form-item>
       </el-form>
     </el-card>
 
@@ -91,10 +98,43 @@
         </div>
       </div>
       <template #footer>
-        <el-button @click="drawerVisible = false">关闭</el-button>
-        <el-button type="primary" @click="goToCases(currentReqId)" :disabled="isGenerating">
-          查看生成结果
-        </el-button>
+        <div class="drawer-footer">
+          <!-- 左侧：关闭按钮 -->
+          <el-button @click="drawerVisible = false">关闭</el-button>
+
+          <!-- 中间：状态展示 -->
+          <span v-if="isGenerating" style="margin-left: 10px; color: #409eff">
+      <el-icon class="is-loading"><Loading/></el-icon> AI 正在工作中...
+    </span>
+
+          <!-- 右侧：操作区 -->
+          <div v-else style="display: flex; gap: 10px; align-items: center;">
+
+            <!-- 查看结果 -->
+            <el-button type="primary" @click="goToCases(currentReqId)">
+              查看结果
+            </el-button>
+
+            <!-- 分割线 -->
+            <el-divider direction="vertical"/>
+
+            <!-- 🔥 追加生成区 -->
+            <span style="font-size: 12px; color: #666">觉得不够?</span>
+            <el-input-number
+                v-model="appendCount"
+                :min="1" :max="10"
+                size="small"
+                style="width: 80px"
+                controls-position="right"
+            />
+            <el-button type="warning" @click="handleAppendGenerate">
+              <el-icon>
+                <Plus/>
+              </el-icon>
+              再来点异常场景
+            </el-button>
+          </div>
+        </div>
       </template>
     </el-drawer>
   </div>
@@ -103,7 +143,7 @@
 <script setup>
 import {ref, reactive, onMounted} from 'vue'
 import {useRouter} from 'vue-router'
-import {Search, Refresh, Download, MagicStick} from '@element-plus/icons-vue'
+import {Search, Refresh, Download, MagicStick, Loading, Plus} from '@element-plus/icons-vue'
 import {getRequirements, generateCases} from '../api/api.js' // 假设api.js已封装
 import {ElMessage} from 'element-plus'
 
@@ -113,6 +153,15 @@ const tableData = ref([])
 const total = ref(0)
 const currentPage = ref(1)
 const pageSize = ref(10)
+//
+const targetCount = ref(5) // 默认值
+const appendCount = ref(3) // 默认追加 3 条
+const isGenerating = ref(false)
+
+// Drawer 相关
+const drawerVisible = ref(false)
+const logs = ref([])
+const currentReqId = ref(null)
 
 const filters = reactive({
   id: '',
@@ -120,11 +169,6 @@ const filters = reactive({
   priority: ''
 })
 
-// Drawer 相关
-const drawerVisible = ref(false)
-const logs = ref([])
-const isGenerating = ref(false)
-const currentReqId = ref(null)
 
 // 模拟获取数据
 const fetchData = async () => {
@@ -147,17 +191,32 @@ const fetchData = async () => {
   }
 }
 
-// 5. 点击生成用例
+// 点击生成用例
 const openGenerateDrawer = async (row) => {
   drawerVisible.value = true
   currentReqId.value = row.id
-  logs.value = []
+  logs.value = [] // 清空日志
+  // 初始模式：new
+  await startStream(row.id, targetCount.value, 'new')
+}
+
+// 追加生成 (点击 Drawer 底部的“再来点”)
+const handleAppendGenerate = async () => {
+  // 不清空日志，让用户看到连续的记录
+  addLog('------------------------------------------------', 'info')
+  addLog(`🔄 收到指令：基于现有数据，追加生成 ${appendCount.value} 条异常场景...`, 'warning')
+
+  // 追加模式：append
+  await startStream(currentReqId.value, appendCount.value, 'append')
+}
+
+// 抽离通用的流式请求函数
+const startStream = async (reqId, count, mode) => {
   isGenerating.value = true
-
-  addLog(`🚀 系统启动: 开始分析需求 [${row.feature_name}]...`)
-
   try {
-    const response = await fetch(`http://localhost:8000/requirements/${row.id}/generate_stream`)
+    // 🔥 拼装 URL，带上 mode 参数
+    const url = `http://localhost:8000/requirements/${reqId}/generate_stream?count=${count}&mode=${mode}`
+    const response = await fetch(url)
 
     if (!response.ok) throw new Error("连接后端失败")
 
@@ -166,10 +225,10 @@ const openGenerateDrawer = async (row) => {
     let buffer = '' // 🔥 增加缓冲区，防止数据被截断
 
     while (true) {
-      const { done, value } = await reader.read()
+      const {done, value} = await reader.read()
       if (done) break
 
-      const chunk = decoder.decode(value, { stream: true })
+      const chunk = decoder.decode(value, {stream: true})
       buffer += chunk
 
       // 按双换行符分割 SSE 消息块
@@ -188,12 +247,11 @@ const openGenerateDrawer = async (row) => {
     await fetchData()
 
   } catch (e) {
-    addLog(`❌ 发生错误: ${e.message}`, 'danger') // danger 会显示红色
+    addLog(`❌ 错误: ${e.message}`, 'danger')
   } finally {
     isGenerating.value = false
   }
 }
-
 // 解析 SSE 格式的数据 (data: {...})
 const parseSSEMessage = (messageString) => {
   const lines = messageString.split('\n')
@@ -223,20 +281,24 @@ const parseSSEMessage = (messageString) => {
       const data = JSON.parse(dataStr)
 
       if (data.type === 'log') {
-        // 如果是“正在思考...”，可以选择不显示，或者用灰色显示
-        if (data.content === '正在思考...') return
-        addLog(`${data.source}: ${data.content}`, 'info')
-      }
-      else if (data.type === 'tool_call') {
+        if (data.source === '系统通知') {
+           // 🔥 如果是系统通知，用紫色或者加粗显示
+           addLog(`📢 ${data.content}`, 'system')
+        } else {
+           addLog(`${data.source}: ${data.content}`, 'info')
+        }
+        // // 如果是“正在思考...”，可以选择不显示，或者用灰色显示
+        // if (data.content === '正在思考...') return
+        // addLog(`${data.source}: ${data.content}`, 'info')
+      } else if (data.type === 'tool_call') {
         addLog(`🛠️ ${data.content}`, 'warning')
-      }
-      else if (data.type === 'tool_result') {
+      } else if (data.type === 'tool_result') {
         // 🔥 优化：如果内容包含 "成功" 或 "✅"，强制使用 success (绿色) 样式
         if (data.content.includes('成功') || data.content.includes('✅')) {
-           addLog(`${data.content}`, 'success')
+          addLog(`${data.content}`, 'success')
         } else {
-           // 只有真正的报错或未知结果才用 warning (黄色)
-           addLog(`⚠️ ${data.content}`, 'warning')
+          // 只有真正的报错或未知结果才用 warning (黄色)
+          addLog(`⚠️ ${data.content}`, 'warning')
         }
       }
     } catch (e) {
@@ -402,7 +464,17 @@ onMounted(() => {
 }
 
 @keyframes blink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0; }
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+}
+.drawer-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
 }
 </style>

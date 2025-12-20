@@ -1,48 +1,120 @@
-import asyncio
 import json
 import re
+import traceback
 
 from autogen_agentchat.teams import RoundRobinGroupChat
 from autogen_agentchat.conditions import TextMentionTermination
-# 导入你之前的定义
-from backend.agents.llm_factory import get_gemini_client
-from backend.models.db_tools import save_verified_test_case
-from autogen_agentchat.ui import Console  # <--- 1. 引入这个
-from autogen_agentchat.messages import TextMessage, ToolCallRequestEvent, ToolCallExecutionEvent
-
-# 这里复用你之前写的 create_test_generator 和 create_test_reviewer
-# 为了代码简洁，我假设它们定义在这个文件里或从 my_agents 导入
 from autogen_agentchat.agents import AssistantAgent
 
+# 导入项目模块
+from backend.agents.llm_factory import get_gemini_client
+from backend.models.db_tools import save_verified_test_case, get_existing_case_titles
+from backend.utils.stream_utils import AutoGenStreamProcessor, format_sse
+
+# -------------------------------------------------------------------------
+# 配置区域
+# -------------------------------------------------------------------------
+
+# 初始化 LLM 客户端
 gemini_client = get_gemini_client()
 
+# Agent 显示名称映射（用于前端展示中文名）
+AGENT_NAMES_MAP = {
+    "test_generator": "✍️ 用例设计专家",
+    "test_reviewer": "🧐 质量评审组长",
+    "user": "用户指令"
+}
 
-def create_test_generator():
-    # ... (复制你之前的 Generator 定义) ...
+# 工具显示名称映射
+TOOL_NAMES_MAP = {
+    "save_verified_test_case": "💾 数据库入库"
+}
+
+# -------------------------------------------------------------------------
+# Agent 定义区域
+# -------------------------------------------------------------------------
+
+def create_test_generator(target_count: int = 5):
+    """
+    创建用例生成 Agent (Generator)
+    :param target_count: 目标生成数量
+    :return:
+    """
+    print(f"🔍 [DEBUG] 正在创建 Generator Agent, 目标数量: {target_count}")  # <--- 埋点 1
+
     return AssistantAgent(
         name="test_generator",
         model_client=gemini_client,
-        system_message="""
-        你是一个测试专家。请生成 JSON 格式的步骤 (step_id, action, expected)。
-        同时必须设定 priority (P0-P2) 和 case_type (Functional/Negative/Boundary)。
+        system_message=f"""
+        你是一个专业的测试工程师。
+        
+        【任务目标】
+        针对给定的功能点，计约 **{target_count}** 个测试用例。
+        
+        【生成策略】
+        1. 优先覆盖：P0级核心功能 > 常见异常场景 > 关键边界值。
+        2. **不要** 生成过于生僻或重复的用例（如网络断开、服务器物理损坏等）。
+        3. 请一次性将这些用例的 JSON 结构输出完毕，不要分批次输出。
+        
+        【格式要求】
+        输出标准 JSON 格式的步骤 (step_id, action, expected)。
+        - "case_title": 用例标题 (必须有，且简洁明了)
+        - "steps": 步骤列表 [{{"step_id": 1, "action": "...", "expected": "..."}}]
+        - "priority": 优先级 (P0-P2)
+        - "case_type": 类型 (功能测试用例/反向测试用例/边界值测试用例)
+
         不要输出 markdown 代码块，直接输出结构化信息。
         """
     )
 
 
 def create_test_reviewer():
-    # ... (复制你之前的 Reviewer 定义) ...
+    """
+    创建用例评审 Agent (Reviewer)
+    拥有入库工具权限
+    """
+
     return AssistantAgent(
         name="test_reviewer",
         model_client=gemini_client,
         tools=[save_verified_test_case],  # 工具需要引入 db_tools
-        system_message="""
-        你是测试组长。审查用例。
-        如果通过，调用 save_verified_test_case 保存。
-        保存完回复 TERMINATE。
+        system_message=f"""
+        你是测试组长。
+        
+        【执行流程】
+        1. 审查 Generator 生成的用例。
+        2. 如果用例有效，**立即调用工具** `save_verified_test_case` 进行入库。
+        3. **重要：** 当本批次用例全部保存完毕后，**必须** 立即回复关键词 "TERMINATE" 来结束任务。
+        4. 不要在这个时候让 Generator 继续生成新的用例，直接结束。
         """
     )
 
+# -------------------------------------------------------------------------
+# 辅助解析函数
+# -------------------------------------------------------------------------
+
+def parse_generator_output(content: str):
+    """
+    [业务解析器] 专门解析 'test_generator' 的文本输出
+    用于在前端日志中展示“正在构思xxx用例”
+    """
+    # 尝试提取 case_title 或 title 字段
+    # 兼容 "case_title": "xxx" 和 "title": "xxx"
+    titles = re.findall(r'["\'](case_)?title["\']\s*:\s*["\'](.*?)["\']', content, re.IGNORECASE)
+
+    # re.findall 返回的是元组列表 [('case_', '标题1'), ('', '标题2')]，需要提取第二个元素
+    clean_titles = [t[1] for t in titles]
+
+    if clean_titles:
+        count = len(clean_titles)
+        title_str = "、".join(clean_titles[:2])
+        if count > 2: title_str += f" 等 {count} 个"
+        return f"正在构思用例：【{title_str}】"
+
+    if len(content) > 50:
+        return "正在解析需求并构建 JSON 数据..."
+
+    return "正在构思测试场景..."
 
 async def run_generation_task(req_id: int, feature_name: str, desc: str):
     """触发 AutoGen 流程"""
@@ -68,194 +140,130 @@ async def run_generation_task(req_id: int, feature_name: str, desc: str):
     return True
 
 
-AGENT_NAMES = {
-    "test_generator": "✍️ 用例设计专家",
-    "test_reviewer": "🧐 质量评审组长",
-    "user": "用户指令"
-}
-
-TOOL_NAMES = {
-    "save_verified_test_case": "💾 数据库入库"
-}
-
-
-async def run_stream_task(req_id: int, feature_name: str, desc: str):
-    generator = create_test_generator()
-    reviewer = create_test_reviewer()
-    termination = TextMentionTermination("TERMINATE")
-
-    # 增加轮次，防止截断
-    team = RoundRobinGroupChat([generator, reviewer], termination_condition=termination, max_turns=20)
-
-    task_prompt = f"""
-    【任务】为功能点编写测试用例并入库。
-    功能ID: {req_id}
-    功能名称: {feature_name}
-    描述: {desc}
-    注意：保存时 requirement_id 必须为 {req_id}。
+async def run_stream_task(req_id: int, feature_name: str, desc: str, target_count: int = 5, mode: str = "new"):
     """
+    业务入口函数：组装 Team -> 启动流 -> 移交处理器
 
-    print(f"🚀 [Stream] 开始处理 ID: {req_id}")
+    :param req_id: 需求ID
+    :param feature_name: 需求名称
+    :param desc: 需求描述
+    :param target_count: 目标生成数量
+    :param mode: 'new' (全新生成) 或 'append' (追加生成)
+    """
+    print(f"🚀 [DEBUG] 进入 run_stream_task. ID={req_id}, Count={target_count}, Mode={mode}")
 
-    count_generated = 0
-    count_saved = 0
+    # --- 1. 发送初始化系统通知 (SSE) ---
+    start_info = {
+        "type": "log",
+        "source": "系统通知",
+        "content": f"✅ 获取需求成功\n📌 需求标题：{feature_name}\n🎯 目标数量：{target_count} 条 ({'增量模式' if mode == 'append' else '全量模式'})"
+    }
+    yield format_sse("message", json.dumps(start_info, ensure_ascii=False))
+
+    prepare_info = {
+        "type": "log",
+        "source": "系统通知",
+        "content": "🚀 正在初始化智能体团队 (Generator & Reviewer)..."
+    }
+    yield format_sse("message", json.dumps(prepare_info, ensure_ascii=False))
 
     try:
-        async for message in team.run_stream(task=task_prompt):
-            output_data = None
+        # --- 2. 根据模式构建 Prompt 上下文 ---
+        existing_context = ""
+        focus_instruction = "优先覆盖核心业务流程、P0级功能。"
 
-            # 转为字典，方便统一处理
-            msg_dict = message.model_dump()
+        if mode == "append":
+            # 增量模式：查出已有用例，防止重复
+            existing_titles = get_existing_case_titles(req_id)
+            existing_json = json.dumps(existing_titles, ensure_ascii=False)
 
-            # -------------------------------------------------
-            # 场景 1: Agent 文本消息
-            # -------------------------------------------------
-            if isinstance(message, TextMessage):
-                if "TERMINATE" in message.content or message.source == "user":
-                    continue
+            existing_context = f"""
+            【已存在用例列表】
+            数据库中已经有了以下用例，请**绝对不要重复**：
+             {existing_json}
+             """
 
-                source_name = AGENT_NAMES.get(message.source, message.source)
-                content_display = "正在思考..."
+            focus_instruction = """
+             请专注于 **查漏补缺**：
+             1. 重点补充：**异常场景**、**边界值**、**安全性**、**性能压力** 相关的用例。
+             2. 避开已有的正常流程。
+             """
 
-                # 如果文本里包含标题，也可以作为补充显示
-                if message.source == "test_generator":
-                    titles = re.findall(r'["\']case_title["\']\s*:\s*["\'](.*?)["\']', message.content, re.IGNORECASE)
-                    if titles:
-                        content_display = f"正在构思用例: {titles[0]} 等..."
-                    else:
-                        content_display = "正在解析需求并构建 JSON..."
+        # --- 3. 动态配置轮次 ---
+        # 假设每轮能生成 3-5 条，计算需要的最大轮次，防止截断
+        dynamic_turns = max(6, int(target_count / 3) + 4)
+        print(f"⚙️ [DEBUG] Team 组装完成，最大轮次: {dynamic_turns}")
 
-                output_data = {"type": "log", "source": source_name, "content": content_display}
+        # --- 4. 组装 AutoGen Team ---
+        generator = create_test_generator(target_count)
+        reviewer = create_test_reviewer()
+        termination = TextMentionTermination("TERMINATE")
 
-            # -------------------------------------------------
-            # 场景 2: 工具调用请求 (🔥 针对你的日志结构重写)
-            # -------------------------------------------------
-            elif isinstance(message, ToolCallRequestEvent):
-                # 1. 获取工具调用列表
-                # 根据你的日志，数据在 'content' 字段里，且是列表
-                calls = []
+        team = RoundRobinGroupChat(
+            [generator, reviewer],
+            termination_condition=termination,
+            max_turns=dynamic_turns
+        )
 
-                # 优先检查 tool_calls (新版标准)
-                if msg_dict.get('tool_calls'):
-                    calls = msg_dict['tool_calls']
-                # 其次检查 content (你的日志结构)
-                elif isinstance(msg_dict.get('content'), list):
-                    calls = msg_dict['content']
+        task_prompt = f"""
+        【任务】为功能点编写测试用例并入库。
+        功能ID: {req_id}
+        功能名称: {feature_name}
+        描述: {desc}
+        
+        【当前模式】：{'🔥 增量补充模式' if mode == 'append' else '🚀 全新生成模式'}
+        目标生成数量：**{target_count} 条左右**。
+        
+        {existing_context}
+        
+        【生成策略】
+        {focus_instruction}
+        
+        【执行要求】
+        1. 保存时 requirement_id 必须为 {req_id}。
+        2. 目标生成数量：**{target_count} 条左右**。。
+        3. 如果数量较多，你可以分多次（多轮对话）生成，每次生成 5 条，直到凑够数量。
+        
+        【重要执行指令】
+        Generator，请立即开始工作！
+        请先回复一句：“收到，正在为 [ID:{req_id}] 生成测试用例...”，然后紧接着输出 JSON 数据。
+        **不要保持沉默！**
 
-                if calls:
-                    tool_names = []
-                    generated_titles = []
+        """
 
-                    for call in calls:
-                        # --- A. 提取工具名 ---
-                        # 你的日志里是 {'name': 'save_verified_test_case', ...}
-                        # 标准版可能是 {'function': {'name': ...}}
-                        raw_name = "Unknown"
-                        if isinstance(call, dict):
-                            raw_name = call.get('name') or call.get('function', {}).get('name')
-                        elif hasattr(call, 'function'):
-                            raw_name = call.function.name
+        print(f"🚀 [Stream] 开始处理 ID: {req_id}")
 
-                        friendly_name = TOOL_NAMES.get(raw_name, raw_name)
-                        tool_names.append(friendly_name)
+        # --- 5. 初始化通用流式处理器 ---
+        processor = AutoGenStreamProcessor(
+            agent_names=AGENT_NAMES_MAP,
+            tool_names=TOOL_NAMES_MAP,
+            # 注册特定的解析逻辑
+            custom_text_parsers={
+                "test_generator": parse_generator_output
+            }
+        )
+        # --- 6. 启动流并移交处理 ---
+        # team.run_stream 返回的是原始迭代器，直接传给 processor 进行标准化处理
+        raw_stream = team.run_stream(task=task_prompt)
 
-                        # --- B. 提取参数中的标题 (用于统计生成数) ---
-                        # 参数通常在 'arguments' 字段，是 JSON 字符串
-                        try:
-                            args_str = call.get('arguments', '{}')
-                            args = json.loads(args_str)
-                            if 'case_title' in args:
-                                generated_titles.append(args['case_title'])
-                        except:
-                            pass
+        async for sse_event in processor.process_stream(raw_stream):
+            yield sse_event
 
-                    # 更新统计
-                    batch_count = len(generated_titles)
-                    count_generated += batch_count
+        print("✅ [DEBUG] run_stream_task 执行完毕")
 
-                    # 构造显示文本
-                    unique_names = list(set(tool_names))
-                    display_text = f"正在调用: {','.join(unique_names)}"
-                    if batch_count > 0:
-                        # 如果提取到了标题，显示出来
-                        title_preview = "、".join(generated_titles[:2])
-                        if batch_count > 2: title_preview += f" 等 {batch_count} 个"
-                        display_text += f"\n📦 包含用例: {title_preview}"
-
-                    output_data = {
-                        "type": "tool_call",
-                        "source": "系统调用",
-                        "content": display_text
-                    }
-                else:
-                    print(f"⚠️ [DEBUG] 未能解析工具列表: {msg_dict}")
-
-            # -------------------------------------------------
-            # 场景 3: 工具执行结果 (统计入库数)
-            # -------------------------------------------------
-            elif isinstance(message, ToolCallExecutionEvent):
-                # 获取结果列表
-                results = msg_dict.get('tool_call_results') or []
-
-                # 你的日志里没有展示这部分的详细结构，通常是在 tool_call_results 或者是 content
-                if not results and isinstance(msg_dict.get('content'), list):
-                    results = msg_dict.get('content')
-
-                success_ids = []
-
-                for res in results:
-                    # 结果内容可能在 content 字段
-                    if isinstance(res, dict):
-                        res_content = str(res.get('content', ''))
-                    else:
-                        res_content = str(getattr(res, 'content', ''))
-
-                    if "ID:" in res_content:
-                        # 提取 ID
-                        match = re.search(r'ID:\s*(\d+)', res_content)
-                        if match:
-                            success_ids.append(match.group(1))
-
-                success_count = len(success_ids)
-                count_saved += success_count
-
-                if success_count > 0:
-                    id_str = ",".join(success_ids)
-                    output_data = {
-                        "type": "tool_result",
-                        "source": "数据库",
-                        "content": f"✅ 成功入库 {success_count} 条 (ID: {id_str})"
-                    }
-                else:
-                    # 如果没找到 ID，打印一下原始返回方便调试
-                    first_res = str(results[0]) if results else "无数据"
-                    output_data = {
-                        "type": "tool_result",
-                        "source": "数据库",
-                        "content": f"⚠️ 执行完成 (未检测到ID返回)"
-                    }
-
-            if output_data:
-                yield format_sse("message", json.dumps(output_data, ensure_ascii=False))
 
     except Exception as e:
-        print(f"❌ Error: {e}")
-        yield format_sse("message", json.dumps({
-            "type": "log", "source": "系统错误", "content": str(e)
-        }, ensure_ascii=False))
+        # --- 7. 全局异常捕获 ---
+        traceback.print_exc()
+        print(f"❌ [FATAL ERROR] 业务逻辑层崩溃: {e}")
 
-    # --- 📊 最终报表 ---
-    summary_data = json.dumps({
-        "generated": count_generated,
-        "saved": count_saved
-    }, ensure_ascii=False)
+        # 发送错误消息给前端
+        err_json = json.dumps({
+            "type": "log",
+            "source": "后端崩溃",
+            "content": f"系统错误: {str(e)}"
+        }, ensure_ascii=False)
+        yield format_sse("message", err_json)
 
-    yield format_sse("finish", summary_data)
-
-
-def format_sse(event: str, data: str):
-    """辅助函数：格式化为 SSE 标准字符串"""
-    # 移除换行符，防止破坏 SSE 协议格式
-    clean_data = data.replace("\n", "\\n")
-    return f"event: {event}\ndata: {clean_data}\n\n"
-
+        # 发送空的结束信号，避免前端无限等待
+        yield format_sse("finish", "{}")

@@ -7,7 +7,7 @@
 @Date    ：2025/12/17 16:14
 @Desc    ：
 """
-# llm_factory.py
+
 import os
 from autogen_ext.models.openai import OpenAIChatCompletionClient
 from dotenv import load_dotenv
@@ -19,23 +19,42 @@ def get_gemini_client(model_name: str = "gemini-3-pro-preview", temperature: flo
     """
     工厂函数：创建一个配置好连接 Google Gemini 的 ModelClient。
     """
-    # 1. 获取 Key
+    """
+        返回配置好的 Gemini 客户端
+        """
+    # 获取 Key
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
-        raise ValueError("❌ 未找到环境变量 GEMINI_API_KEY，请检查 .env 文件")
+        print("❌ [LLM Factory] 警告: 未找到 GEMINI_API_KEY")
 
-    # 2. 创建并返回客户端
-    # 这里封装了所有连接 Google 所需的特殊配置
-    return OpenAIChatCompletionClient(
-        model=model_name,
-        api_key=api_key,
-        # 关键：指向 Google 的 OpenAI 兼容接口
-        base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
-        model_info={
-            "vision": True,
-            "function_calling": True,
-            "json_output": True,
-            "family": "gemini"
-        },
-        temperature=temperature,
-    )
+    print(f"🔌 [LLM Factory] 正在初始化模型: {model_name}...")
+
+    try:
+        # 创建客户端
+        client = OpenAIChatCompletionClient(
+            model=model_name,
+            api_key=api_key,
+            # 指向 Google 的 OpenAI 兼容接口
+            base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+
+            # 🔥 2. 必须包含 model_info (防止报错 model_info is required)
+            model_info={
+                "vision": True,
+                "function_calling": True,
+                "json_output": True,
+                "structured_output": True,  # 🔥 加上这个由 False 改为 True 或加上，消除 Warning
+                "family": "gemini"
+            },
+
+            temperature=temperature,
+            # 防止网络波动导致断连
+            timeout=120
+        )
+        return client
+    except Exception as e:
+        print(f"❌ [LLM Factory] 初始化失败: {e}")
+        raise e
+
+if __name__ == "__main__":
+
+    pass

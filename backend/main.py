@@ -66,17 +66,22 @@ def list_test_cases(req_id: Optional[int] = None, title: Optional[str] = None):
 
 
 @app.get("/requirements/{req_id}/generate_stream")
-async def generate_cases_stream(req_id: int):
+async def generate_cases_stream(req_id: int, count: int = 5, mode: str = "new"):
     """
     流式生成接口
     """
     req = db_tools.get_requirement_by_id(req_id)
     if not req:
-        raise HTTPException(status_code=404, detail="Requirement not found")
+        raise HTTPException(status_code=404, detail="未找到对应的需求")
 
     # 返回流式响应，media_type 必须是 text/event-stream
     return StreamingResponse(
-        agent_manager.run_stream_task(req_id, req['feature_name'], req['description']),
+        agent_manager.run_stream_task(
+            req_id, req['feature_name'],
+            req['description'],
+            target_count=count,
+            mode=mode
+        ),
         media_type="text/event-stream"
     )
 if __name__ == "__main__":

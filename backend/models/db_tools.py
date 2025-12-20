@@ -144,7 +144,7 @@ def save_verified_test_case(
     expected_result: Annotated[str, "预期结果"],
     # 🔥 新增参数
     priority: Annotated[str, "优先级 (P0-P3)"],
-    case_type: Annotated[str, "用例类型 (Functional/Negative/Boundary)"],
+    case_type: Annotated[str, "用例类型 (功能测试用例/反向测试用例/边界值测试用例)"],
     test_data: Annotated[Dict, "测试数据键值对，如 {'user': 'admin'}"] = {}
 ) -> str:
     """
@@ -189,3 +189,14 @@ def save_verified_test_case(
     except Exception as e:
         print(f"❌ [DEBUG] 数据库保存报错: {str(e)}")      # <--- 加这行！！
         return f"❌ 入库失败: {e}"
+
+
+def get_existing_case_titles(req_id: int) -> list:
+    """获取指定需求下已存在的用例标题列表"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    # 只查标题就行，省流量
+    cursor.execute("SELECT case_title FROM test_cases WHERE requirement_id = ?", (req_id,))
+    titles = [row[0] for row in cursor.fetchall()]
+    conn.close()
+    return titles
