@@ -93,7 +93,6 @@ class AutoGenStreamProcessor:
                 # ---------------------------------------------------------
                 elif isinstance(message, ToolCallRequestEvent):
                     calls = []
-                    # 兼容性提取：不同版本 AutoGen 工具列表字段不同
                     if msg_dict.get('tool_calls'):
                         calls = msg_dict['tool_calls']
                     elif isinstance(msg_dict.get('content'), list):
@@ -101,52 +100,47 @@ class AutoGenStreamProcessor:
 
                     if calls:
                         tool_display_names = []
-                        generated_titles = []  # 用于存储本批次提取出的用例标题
+                        generated_titles = []
 
                         for call in calls:
-                            # --- A. 提取并翻译工具名称 ---
+                            # 1. 准备数据
                             raw_name = "Unknown"
-                            # 兼容字典模式
+                            arguments_str = '{}'
+
                             if isinstance(call, dict):
                                 raw_name = call.get('name') or call.get('function', {}).get('name')
-                                # 提取标题时的逻辑增强
-                                try:
-                                    args_str = call.get('arguments', '{}')
-                                    args = json.loads(args_str)
-                                    # 优先取 case_title，没有则取 title
-                                    title = args.get('case_title') or args.get('title')
-                                    if title:
-                                        generated_titles.append(title)
-                                except:
-                                    pass
-
-                            # 兼容对象模式
+                                arguments_str = call.get('arguments', '{}')
                             elif hasattr(call, 'function'):
                                 raw_name = call.function.name
-                                try:
-                                    args = json.loads(call.function.arguments)
-                                    if 'case_title' in args:
-                                        generated_titles.append(args['case_title'])
-                                except:
-                                    pass
+                                arguments_str = call.function.arguments
 
                             tool_display_names.append(self.tool_names.get(raw_name, raw_name))
 
-                        # --- B. 更新统计数据 ---
-                        self.stats["generated"] += len(generated_titles)
+                            # 2. 🔥 智能提取标题 (修复点)
+                            try:
+                                args = json.loads(arguments_str)
+                                title = None
+                                # 尝试直接获取
+                                title = args.get('case_title') or args.get('title')
+                                # 尝试从 data 嵌套获取
+                                if not title and isinstance(args.get('data'), dict):
+                                    title = args['data'].get('case_title') or args['data'].get('title')
 
-                        # --- C. 构造前端展示文本 (垂直列表格式) ---
+                                if title:
+                                    generated_titles.append(title)
+                            except:
+                                pass
+
+                        # --- C. 构造展示 ---
+                        self.stats["generated"] += len(generated_titles)  # 只有提取到标题才算生成成功
+
                         unique_names = list(set(tool_display_names))
                         display_text = f"正在调用: {','.join(unique_names)}"
 
-                        # 如果提取到了标题，显示详细列表
                         if generated_titles:
                             display_text += "\n📦 包含用例列表:"
-                            # 使用 enumerate 生成序号： 1、xxx \n 2、xxx
                             for idx, title in enumerate(generated_titles):
                                 display_text += f"\n{idx + 1}、{title}"
-
-                        # 如果是批量调用但没提取到标题
                         elif len(calls) > 1:
                             display_text += f" (批量处理 {len(calls)} 项)"
 
@@ -168,16 +162,23 @@ class AutoGenStreamProcessor:
                     success_count = 0
                     ids = []
 
+                    print(results)
+
                     for res in results:
                         # 兼容处理结果内容
                         res_content = str(res.get('content', '')) if isinstance(res, dict) else str(
                             getattr(res, 'content', ''))
 
                         # 判断是否入库成功 (根据业务约定的返回格式 "ID: xxx")
+                        # 情况 A: 标准格式 "ID: 100"
                         if "ID:" in res_content:
                             success_count += 1
                             match = re.search(r'ID:\s*(\d+)', res_content)
                             if match: ids.append(match.group(1))
+                        # 情况 B: 纯数字格式 "100" (save_case 返回的就是这个)
+                        elif res_content.strip().isdigit():
+                            success_count += 1
+                            ids.append(res_content.strip())
 
                     # 更新统计
                     self.stats["saved"] += success_count

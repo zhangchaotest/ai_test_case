@@ -69,19 +69,44 @@ def seed_data():
 
 # --- CRUD 操作 ---
 
-def get_requirements_list():
-    """获取需求列表，并统计关联的用例数量"""
+def get_requirements_list(page: int = 1, page_size: int = 10, req_id: str = None, feature: str = None):
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
-    sql = """
-        SELECT fp.*, (SELECT COUNT(*) FROM test_cases tc WHERE tc.requirement_id = fp.id) as case_count 
-        FROM functional_points fp ORDER BY fp.id DESC
+
+    # 1. 构建基础 SQL 和 参数
+    base_sql = "FROM functional_points WHERE 1=1"
+    params = []
+
+    if req_id:
+        base_sql += " AND id LIKE ?"
+        params.append(f"%{req_id}%")
+    if feature:
+        base_sql += " AND feature_name LIKE ?"
+        params.append(f"%{feature}%")
+
+    # 2. 查询总数 (Total)
+    cursor.execute(f"SELECT COUNT(*) {base_sql}", tuple(params))
+    total = cursor.fetchone()[0]
+
+    # 3. 查询当前页数据 (Items)
+    # 关联查询用例数量
+    sql = f"""
+        SELECT fp.*, (SELECT COUNT(*) FROM test_cases_ord tc WHERE tc.requirement_id = fp.id) as case_count 
+        {base_sql} 
+        ORDER BY fp.id DESC 
+        LIMIT ? OFFSET ?
     """
-    cursor.execute(sql)
+    # 添加分页参数
+    limit = page_size
+    offset = (page - 1) * page_size
+    params.extend([limit, offset])
+
+    cursor.execute(sql, tuple(params))
     rows = [dict(row) for row in cursor.fetchall()]
     conn.close()
-    return rows
+
+    return {"total": total, "items": rows}
 
 def get_requirement_by_id(req_id: int):
     conn = sqlite3.connect(DB_PATH)
@@ -95,43 +120,42 @@ def get_requirement_by_id(req_id: int):
 
 # backend/db_tools.py
 
-def get_test_cases(req_id: int = None, title: str = None):
-    """通用查询用例函数：支持按 req_id 筛选，或者查全部"""
+def get_test_cases(page: int = 1, page_size: int = 10, req_id: int = None, title: str = None):
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
 
-    sql = "SELECT * FROM test_cases WHERE 1=1"
+    base_sql = "FROM test_cases WHERE 1=1"
     params = []
 
     if req_id:
-        sql += " AND requirement_id = ?"
+        base_sql += " AND requirement_id = ?"
         params.append(req_id)
-
     if title:
-        sql += " AND case_title LIKE ?"
+        base_sql += " AND case_title LIKE ?"
         params.append(f"%{title}%")
 
-    sql += " ORDER BY id DESC"  # 倒序排列，新的在前面
+    # 查总数
+    cursor.execute(f"SELECT COUNT(*) {base_sql}", tuple(params))
+    total = cursor.fetchone()[0]
+
+    # 查数据
+    sql = f"SELECT * {base_sql} ORDER BY id DESC LIMIT ? OFFSET ?"
+    params.extend([page_size, (page - 1) * page_size])
 
     cursor.execute(sql, tuple(params))
-
     rows = []
     for row in cursor.fetchall():
         d = dict(row)
-        # 复用之前的安全解析逻辑
         d['steps'] = safe_json_loads(d.get('steps')) or []
         d['test_data'] = safe_json_loads(d.get('test_data')) or {}
-
-        # 补全默认字段防止报错
         d.setdefault('priority', 'P1')
         d.setdefault('case_type', 'Functional')
         d.setdefault('status', 'Active')
-
         rows.append(d)
 
     conn.close()
-    return rows
+    return {"total": total, "items": rows}
 
 # ... 这里保留你之前的 save_verified_test_case 函数 ...
 # 记得把 save_verified_test_case 中的 conn 路径改成 DB_PATH
@@ -164,7 +188,7 @@ def save_verified_test_case(
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         cursor.execute(
-            """INSERT INTO test_cases
+            """INSERT INTO test_cases_ord
                (requirement_id, case_title, pre_condition, steps, expected_result,
                 priority, case_type, test_data, status)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
@@ -196,7 +220,40 @@ def get_existing_case_titles(req_id: int) -> list:
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     # 只查标题就行，省流量
-    cursor.execute("SELECT case_title FROM test_cases WHERE requirement_id = ?", (req_id,))
+    cursor.execute("SELECT case_title FROM test_cases_ord WHERE requirement_id = ?", (req_id,))
     titles = [row[0] for row in cursor.fetchall()]
     conn.close()
     return titles
+
+
+def get_requirements_page(page: int = 1, size: int = 10):
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    # 1. 计算 Offset
+    offset = (page - 1) * size
+
+    # 2. 查询总条数 (用于前端计算有多少页)
+    cursor.execute("SELECT COUNT(*) FROM functional_points")
+    total = cursor.fetchone()[0]
+
+    # 3. 查询当前页数据 (分页查询)
+    # 关联查询 test_cases 统计 case_count
+    sql = """
+          SELECT fp.*, (SELECT COUNT(*) FROM test_cases_ord tc WHERE tc.requirement_id = fp.id) as case_count
+          FROM functional_points fp
+          ORDER BY fp.id DESC
+          LIMIT ? OFFSET ? \
+          """
+    cursor.execute(sql, (size, offset))
+
+    items = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+
+    return {
+        "total": total,
+        "page": page,
+        "size": size,
+        "items": items
+    }

@@ -1,229 +1,256 @@
 <template>
   <div class="view-container">
-    <!-- 1. 顶部搜索栏 (仿截图风格) -->
-    <el-card shadow="never" class="filter-container">
-      <el-form :inline="true" :model="filters" class="demo-form-inline">
+    <!--
+      1. 使用 ProTable 组件
+      - ref="proTableRef": 用于调用 refresh() 方法
+      - :api="getRequirements": 传入 API 函数
+      - :init-param: 初始搜索参数
+    -->
+    <pro-table
+        ref="proTableRef"
+        :api="getRequirements"
+        :init-param="{ feature: '', priority: '' }"
+    >
+      <!-- Slot: 自定义搜索区域 -->
+      <template #search="{ params }">
         <el-form-item label="需求ID">
-          <el-input v-model="filters.id" placeholder="请输入 ID" clearable/>
+          <el-input v-model="params.id" placeholder="ID" clearable style="width: 100px"/>
         </el-form-item>
         <el-form-item label="功能名称">
-          <el-input v-model="filters.feature" placeholder="模糊搜索" clearable/>
+          <el-input v-model="params.feature" placeholder="模糊搜索" clearable/>
         </el-form-item>
         <el-form-item label="优先级">
-          <el-select v-model="filters.priority" placeholder="全部" clearable style="width: 120px">
+          <el-select v-model="params.priority" placeholder="全部" clearable style="width: 120px">
             <el-option label="P0" value="P0"/>
             <el-option label="P1" value="P1"/>
           </el-select>
         </el-form-item>
-        <el-form-item>
-          <el-button type="primary" :icon="Search" @click="fetchData">查询</el-button>
-          <el-button :icon="Refresh" @click="resetFilters">重置</el-button>
-          <el-button type="success" :icon="Download" @click="handleExport">导出</el-button>
-        </el-form-item>
-        <el-form-item>
-          <div class="config-panel" style="margin-bottom: 10px; display: flex; align-items: center; gap: 10px;">
-            <span>生成数量目标：</span>
-            <el-input-number v-model="targetCount" :min="5" :max="50" size="small"/>
-            <el-tag type="info" size="small">建议 5-10 条，复杂需求可调大</el-tag>
-          </div>
-        </el-form-item>
-      </el-form>
-    </el-card>
+      </template>
 
-    <!-- 2. 数据表格 -->
-    <el-card shadow="never" class="table-container">
-      <el-table :data="tableData" border stripe style="width: 100%" v-loading="loading">
-        <el-table-column type="selection" width="55"/>
-        <el-table-column prop="id" label="需求ID" width="80" sortable/>
-        <el-table-column prop="module_name" label="所属模块" width="120"/>
-        <el-table-column prop="feature_name" label="功能名称" width="200" show-overflow-tooltip/>
-        <el-table-column prop="description" label="功能描述" show-overflow-tooltip/>
-        <el-table-column prop="priority" label="优先级" width="100">
-          <template #default="{ row }">
-            <el-tag :type="row.priority === 'P0' ? 'danger' : 'warning'">{{ row.priority }}</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="关联用例" width="120" align="center">
-          <template #default="{ row }">
-            <!-- 6. 点击数量跳转到测试用例页面 -->
-            <el-link type="primary" :underline="false" @click="goToCases(row.id)">
-              {{ row.case_count }} 条
-            </el-link>
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" width="150" fixed="right">
-          <template #default="{ row }">
-            <!-- 5. 生成用例按钮 -->
-            <el-button type="primary" link @click="openGenerateDrawer(row)">
-              <el-icon>
-                <MagicStick/>
-              </el-icon>
-              生成用例
-            </el-button>
-          </template>
-        </el-table-column>
-      </el-table>
+      <!-- Slot: 自定义按钮区域 -->
+      <template #buttons>
+        <el-button type="success" :icon="Download" @click="handleExport">导出Excel</el-button>
+      </template>
 
-      <!-- 4. 翻页 -->
-      <div class="pagination-wrapper">
-        <el-pagination
-            v-model:current-page="currentPage"
-            v-model:page-size="pageSize"
-            :page-sizes="[10, 20, 50]"
-            layout="total, sizes, prev, pager, next, jumper"
-            :total="total"
-            @size-change="fetchData"
-            @current-change="fetchData"
-        />
-      </div>
-    </el-card>
+      <!-- Slot: 表格列定义 -->
+      <el-table-column type="selection" width="55"/>
+      <el-table-column prop="id" label="ID" width="80" sortable/>
+      <el-table-column prop="module_name" label="所属模块" width="120"/>
+      <el-table-column prop="feature_name" label="功能名称" width="200" show-overflow-tooltip/>
+      <el-table-column prop="description" label="功能描述" show-overflow-tooltip/>
 
-    <!-- 5. 右侧弹窗：流式输出展示 (Drawer) -->
+      <el-table-column prop="priority" label="优先级" width="100">
+        <template #default="{ row }">
+          <el-tag :type="row.priority === 'P0' ? 'danger' : 'warning'">{{ row.priority }}</el-tag>
+        </template>
+      </el-table-column>
+
+      <el-table-column label="关联用例" width="120" align="center">
+        <template #default="{ row }">
+          <!-- 点击跳转到用例列表 -->
+          <el-link type="primary" :underline="false" @click="goToCases(row.id)">
+            {{ row.case_count }} 条
+          </el-link>
+        </template>
+      </el-table-column>
+
+      <el-table-column label="操作" width="150" fixed="right">
+        <template #default="{ row }">
+          <el-button type="primary" link @click="openGenerateDrawer(row)">
+            <el-icon>
+              <MagicStick/>
+            </el-icon>
+            生成用例
+          </el-button>
+        </template>
+      </el-table-column>
+    </pro-table>
+
+    <!--
+      2. AI 流式生成抽屉
+    -->
     <el-drawer
         v-model="drawerVisible"
         title="🤖 AI 智能生成中..."
-        size="40%"
+        size="45%"
         :close-on-click-modal="false"
+        destroy-on-close
     >
-      <div class="console-box">
-        <div class="console-header">System Console</div>
-        <!-- 日志区域 -->
-        <div class="console-content" ref="consoleRef">
-          <div v-for="(log, index) in logs" :key="index" class="log-line">
-            <span class="log-time">[{{ log.time }}]</span>
-            <!-- 根据 type 动态改变颜色 -->
-            <span :class="['log-msg', log.type]">{{ log.msg }}</span>
+      <div class="drawer-body">
+        <!-- 配置区：允许用户调整生成数量 -->
+        <div class="config-panel">
+          <div class="config-item">
+            <span class="label">🎯 目标数量：</span>
+            <el-input-number v-model="targetCount" :min="1" :max="20" size="small"/>
           </div>
-          <div v-if="isGenerating" class="loading-cursor">_</div>
+
+          <!-- 🔥 新增：增量模式开关 -->
+          <div class="config-item" style="margin-left: 20px;">
+            <span class="label">模式：</span>
+            <el-switch
+                v-model="isAppendMode"
+                active-text="增量补充"
+                inactive-text="覆盖/新建"
+                inline-prompt
+                style="--el-switch-on-color: #13ce66; --el-switch-off-color: #ff4949"
+                :disabled="isGenerating"
+            />
+            <!-- 提示信息 -->
+            <el-tooltip content="开启后，AI 将读取已有用例，避免重复生成" placement="top">
+              <el-icon style="margin-left: 5px; cursor: pointer; color: #909399">
+                <QuestionFilled/>
+              </el-icon>
+            </el-tooltip>
+          </div>
+
+          <div class="config-item" style="margin-left: auto;">
+            <el-button type="primary" size="small" @click="startGenerate" :loading="isGenerating">
+              {{ isGenerating ? '生成中...' : '开始生成' }}
+            </el-button>
+          </div>
+        </div>
+
+        <!-- 控制台区域 -->
+        <div class="console-box">
+          <div class="console-header">
+            <span>System Console</span>
+            <span v-if="isGenerating" style="float: right; color: #e6a23c">
+               <el-icon class="is-loading"><Loading/></el-icon> Processing...
+             </span>
+            <span v-else style="float: right; color: #67c23a">Ready</span>
+          </div>
+
+          <div class="console-content" ref="consoleRef">
+            <div v-for="(log, index) in logs" :key="index" class="log-line">
+              <span class="log-time">[{{ log.time }}]</span>
+              <!-- 动态绑定 class 实现颜色变化 -->
+              <span :class="['log-msg', log.type]">{{ log.msg }}</span>
+            </div>
+            <!-- 光标动画 -->
+            <div v-if="isGenerating" class="loading-cursor">_</div>
+          </div>
         </div>
       </div>
+
       <template #footer>
-        <div class="drawer-footer">
-          <!-- 左侧：关闭按钮 -->
-          <el-button @click="drawerVisible = false">关闭</el-button>
-
-          <!-- 中间：状态展示 -->
-          <span v-if="isGenerating" style="margin-left: 10px; color: #409eff">
-      <el-icon class="is-loading"><Loading/></el-icon> AI 正在工作中...
-    </span>
-
-          <!-- 右侧：操作区 -->
-          <div v-else style="display: flex; gap: 10px; align-items: center;">
-
-            <!-- 查看结果 -->
-            <el-button type="primary" @click="goToCases(currentReqId)">
-              查看结果
-            </el-button>
-
-            <!-- 分割线 -->
-            <el-divider direction="vertical"/>
-
-            <!-- 🔥 追加生成区 -->
-            <span style="font-size: 12px; color: #666">觉得不够?</span>
-            <el-input-number
-                v-model="appendCount"
-                :min="1" :max="10"
-                size="small"
-                style="width: 80px"
-                controls-position="right"
-            />
-            <el-button type="warning" @click="handleAppendGenerate">
-              <el-icon>
-                <Plus/>
-              </el-icon>
-              再来点异常场景
-            </el-button>
-          </div>
-        </div>
+        <el-button @click="drawerVisible = false" :disabled="isGenerating">关闭</el-button>
+        <el-button type="primary" @click="goToCases(currentReqId)" :disabled="isGenerating">
+          查看结果
+        </el-button>
       </template>
     </el-drawer>
   </div>
 </template>
 
 <script setup>
-import {ref, reactive, onMounted} from 'vue'
+import {ref} from 'vue'
 import {useRouter} from 'vue-router'
-import {Search, Refresh, Download, MagicStick, Loading, Plus} from '@element-plus/icons-vue'
-import {getRequirements, generateCases} from '../api/api.js' // 假设api.js已封装
+import {Download, MagicStick, Loading} from '@element-plus/icons-vue'
+import {getRequirements} from '../api/api.js'
+import ProTable from '../components/ProTable.vue'
 import {ElMessage} from 'element-plus'
+import {QuestionFilled} from '@element-plus/icons-vue' // 记得引入图标
 
 const router = useRouter()
-const loading = ref(false)
-const tableData = ref([])
-const total = ref(0)
-const currentPage = ref(1)
-const pageSize = ref(10)
-//
-const targetCount = ref(5) // 默认值
-const appendCount = ref(3) // 默认追加 3 条
-const isGenerating = ref(false)
+const proTableRef = ref(null)
 
-// Drawer 相关
+// === 状态定义 ===
 const drawerVisible = ref(false)
 const logs = ref([])
+const isGenerating = ref(false)
 const currentReqId = ref(null)
+const targetCount = ref(5) // 默认生成 5 条
+const consoleRef = ref(null)
 
-const filters = reactive({
-  id: '',
-  feature: '',
-  priority: ''
-})
+// 用例生成模式new新增，append追加
+const isAppendMode = ref(true)
 
-
-// 模拟获取数据
-const fetchData = async () => {
-  loading.value = true
-  try {
-    // 实际项目中应该把 filters, page 传给后端
-    const res = await getRequirements()
-    let data = res.data
-
-    // 前端简单过滤 (如果后端没做分页)
-    if (filters.id) data = data.filter(item => String(item.id).includes(filters.id))
-    if (filters.feature) data = data.filter(item => item.feature_name.includes(filters.feature))
-
-    total.value = data.length
-    tableData.value = data // 这里应该做 slice 分页
-  } catch (e) {
-    ElMessage.error('加载失败')
-  } finally {
-    loading.value = false
-  }
+// 导出
+const handleExport = () => {
+  ElMessage.success('正在导出 Excel...')
 }
 
-// 点击生成用例
-const openGenerateDrawer = async (row) => {
+// 跳转到用例列表
+const goToCases = (reqId) => {
+  console.log('跳转到用例列表', reqId)
+  router.push({path: '/cases', query: {reqId: reqId}})
+  drawerVisible.value = false
+}
+
+// === 日志辅助函数 ===
+const addLog = (msg, type = 'info') => {
+  const time = new Date().toLocaleTimeString('en-US', {hour12: false})
+  logs.value.push({time, msg, type})
+
+  // 自动滚动到底部
+  setTimeout(() => {
+    if (consoleRef.value) {
+      consoleRef.value.scrollTop = consoleRef.value.scrollHeight
+    }
+  }, 50)
+}
+
+
+// === 新增/修改的状态变量 ===
+const currentRow = ref({})      // 暂存当前选中的行数据
+
+// === 1. 打开抽屉（只做初始化，不写业务逻辑） ===
+const openGenerateDrawer = (row) => {
   drawerVisible.value = true
+  currentRow.value = row // 保存当前行，方便 startGenerate 读取
+  logs.value = []
   currentReqId.value = row.id
-  logs.value = [] // 清空日志
-  // 初始模式：new
-  await startStream(row.id, targetCount.value, 'new')
+
+  // 🔥 智能判断逻辑
+  if (row.case_count > 0) {
+    // 如果已经有用例，默认开启增量模式，且数量设少一点
+    isAppendMode.value = true
+    targetCount.value = 3
+    addLog(`ℹ️ 检测到该需求已有 ${row.case_count} 条用例，已自动切换为【增量补充模式】`, 'warning')
+  } else {
+    // 如果是新需求，默认全量模式
+    isAppendMode.value = false
+    targetCount.value = 5
+  }
+  // 自动开始生成 (如果不想要自动开始，把这行删掉，让用户点按钮)
+  startGenerate()
 }
 
-// 追加生成 (点击 Drawer 底部的“再来点”)
-const handleAppendGenerate = async () => {
-  // 不清空日志，让用户看到连续的记录
-  addLog('------------------------------------------------', 'info')
-  addLog(`🔄 收到指令：基于现有数据，追加生成 ${appendCount.value} 条异常场景...`, 'warning')
+// === 2. 执行生成（核心逻辑封装在这里） ===
+const startGenerate = async () => {
+  // 从 currentRow 取值，防止变量丢失
+  const row = currentRow.value
+  if (!row || !row.id) return
 
-  // 追加模式：append
-  await startStream(currentReqId.value, appendCount.value, 'append')
-}
-
-// 抽离通用的流式请求函数
-const startStream = async (reqId, count, mode) => {
   isGenerating.value = true
+
+  // 如果是重新点击开始，建议清空之前的日志，或者加个分割线
+  if (logs.value.length > 1) {
+    addLog('------------------------------------------------', 'info')
+    addLog('🔄 重新启动生成任务...', 'info')
+  } else if (logs.value.length === 0) {
+    addLog(`🚀 系统启动: 开始分析需求 [${row.feature_name}]...`)
+  }
+
+  const modeText = isAppendMode.value ? '增量补充 (Append)' : '全量覆盖 (New)'
+  addLog(`⚙️ 配置: 目标数量 ${targetCount.value} 条 | 模式: ${modeText}`)
+
   try {
-    // 🔥 拼装 URL，带上 mode 参数
-    const url = `http://localhost:8000/requirements/${reqId}/generate_stream?count=${count}&mode=${mode}`
+    // 🔥 拼接 URL：带上 count 和 mode
+    // mode 参数需要后端支持 (根据之前的后端代码改造)
+    const modeParam = isAppendMode.value ? 'append' : 'new'
+    const url = `http://localhost:8000/requirements/${row.id}/generate_stream?count=${targetCount.value}&mode=${modeParam}`
+
     const response = await fetch(url)
 
-    if (!response.ok) throw new Error("连接后端失败")
+    if (!response.ok) throw new Error(`HTTP Error: ${response.status}`)
 
+    // 准备读取流
     const reader = response.body.getReader()
     const decoder = new TextDecoder("utf-8")
-    let buffer = '' // 🔥 增加缓冲区，防止数据被截断
+    let buffer = ''
 
+    // 循环读取
     while (true) {
       const {done, value} = await reader.read()
       if (done) break
@@ -231,230 +258,189 @@ const startStream = async (reqId, count, mode) => {
       const chunk = decoder.decode(value, {stream: true})
       buffer += chunk
 
-      // 按双换行符分割 SSE 消息块
       const parts = buffer.split('\n\n')
-      // 最后一部分可能是不完整的，留给下一次循环处理
       buffer = parts.pop()
 
       for (const part of parts) {
-        parseSSEMessage(part) // 解析完整的消息块
+        parseSSEMessage(part)
       }
     }
 
-    // 处理剩余的 buffer
     if (buffer.trim()) parseSSEMessage(buffer)
-    addLog(`✅ 流程结束: 所有用例已入库！`, 'success')
-    await fetchData()
+
+    // 刷新表格
+    if (proTableRef.value) {
+      proTableRef.value.refresh()
+    }
 
   } catch (e) {
-    addLog(`❌ 错误: ${e.message}`, 'danger')
+    addLog(`❌ 网络或系统错误: ${e.message}`, 'danger')
   } finally {
     isGenerating.value = false
   }
 }
-// 解析 SSE 格式的数据 (data: {...})
+
+// === SSE 消息解析器 ===
 const parseSSEMessage = (messageString) => {
   const lines = messageString.split('\n')
   let eventType = 'message'
   let dataStr = ''
 
+  // 提取 event 和 data
   for (const line of lines) {
     if (line.startsWith('event: ')) eventType = line.replace('event: ', '').trim()
     else if (line.startsWith('data: ')) dataStr = line.replace('data: ', '').trim()
   }
 
-  // 🔥 核心修改：处理 finish 事件的统计数据
+  // 1. 处理结束事件 (包含统计数据)
   if (eventType === 'finish') {
     try {
       const stats = JSON.parse(dataStr)
-      addLog(`✨ 任务完成报告：`, 'success')
-      addLog(`📊 共设计用例: ${stats.generated} 条`, 'success')
-      addLog(`💾 成功入库: ${stats.saved} 条`, 'success')
+      addLog('✨ ============================', 'info')
+      addLog(`📊 任务完成报告：`, 'success')
+      addLog(`   - 设计用例: ${stats.generated} 条`, 'success')
+      addLog(`   - 成功入库: ${stats.saved} 条`, 'success')
     } catch (e) {
-      addLog('✨ 所有任务执行完毕！', 'success')
+      addLog('✅ 流程结束。', 'success')
     }
     return
   }
 
+  // 2. 处理普通消息
   if (dataStr) {
     try {
       const data = JSON.parse(dataStr)
 
       if (data.type === 'log') {
-        if (data.source === '系统通知') {
-           // 🔥 如果是系统通知，用紫色或者加粗显示
-           addLog(`📢 ${data.content}`, 'system')
-        } else {
-           addLog(`${data.source}: ${data.content}`, 'info')
-        }
-        // // 如果是“正在思考...”，可以选择不显示，或者用灰色显示
-        // if (data.content === '正在思考...') return
-        // addLog(`${data.source}: ${data.content}`, 'info')
+        // 过滤掉无意义的思考文本
+        if (data.content === '正在思考...') return
+        addLog(`${data.source}: ${data.content}`, 'info')
       } else if (data.type === 'tool_call') {
         addLog(`🛠️ ${data.content}`, 'warning')
       } else if (data.type === 'tool_result') {
-        // 🔥 优化：如果内容包含 "成功" 或 "✅"，强制使用 success (绿色) 样式
+        // 根据内容判断颜色
         if (data.content.includes('成功') || data.content.includes('✅')) {
-          addLog(`${data.content}`, 'success')
+          addLog(`✅ ${data.content}`, 'success')
         } else {
-          // 只有真正的报错或未知结果才用 warning (黄色)
           addLog(`⚠️ ${data.content}`, 'warning')
         }
       }
     } catch (e) {
-      console.warn('解析失败', dataStr)
+      // 忽略非 JSON 数据
     }
   }
 }
-
-// 稍微优化一下日志样式函数
-const addLog = (msg, type = 'info') => {
-  const time = new Date().toLocaleTimeString()
-  logs.value.push({time, msg, type})
-
-  // 自动滚动到底部
-  setTimeout(() => {
-    const box = document.querySelector('.console-content')
-    if (box) box.scrollTop = box.scrollHeight
-  }, 100)
-}
-
-// 6. 跳转到测试用例页面 (带参数)
-const goToCases = (reqId) => {
-  router.push({path: '/cases', query: {reqId: reqId}})
-  drawerVisible.value = false // 如果是从弹窗跳的，关闭弹窗
-}
-
-const resetFilters = () => {
-  filters.id = ''
-  filters.feature = ''
-  filters.priority = ''
-  fetchData()
-}
-
-const handleExport = () => {
-  ElMessage.success('正在导出 Excel...')
-}
-
-onMounted(() => {
-  fetchData()
-})
 </script>
 
 <style scoped>
-/* =========================
-   1. 页面整体布局
-   ========================= */
 .view-container {
   background: #fff;
-  padding: 0;
-  min-height: 100%;
+  padding: 20px;
 }
 
-.filter-container {
-  margin-bottom: 10px;
-  border: none;
-  border-bottom: 1px solid #eee;
-  border-radius: 0;
-}
-
-.table-container {
-  border: none;
-}
-
-.pagination-wrapper {
-  margin-top: 20px;
-  display: flex;
-  justify-content: flex-end;
-}
-
-/* =========================
-   2. 控制台 (Console) 容器风格
-   ========================= */
-.console-box {
-  background: #1e1e1e;
-  color: #e0e0e0; /* 默认文字颜色：浅灰 */
-  border-radius: 8px;
-  height: 500px; /* 统一高度 */
+/* 抽屉内部布局 */
+.drawer-body {
   display: flex;
   flex-direction: column;
-  font-family: 'Consolas', 'Monaco', 'Courier New', monospace; /* 统一字体栈 */
+  height: 100%;
+}
+
+.config-panel {
+  padding: 0 0 15px 0;
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid #eee;
+  margin-bottom: 15px;
+}
+
+.config-panel .label {
+  font-weight: bold;
+  font-size: 14px;
+  color: #606266;
+  margin-right: 10px;
+}
+
+/* 黑色控制台风格 */
+.console-box {
+  background: #1e1e1e;
+  color: #e0e0e0;
+  border-radius: 8px;
+  flex: 1; /* 自动撑满剩余高度 */
+  display: flex;
+  flex-direction: column;
+  font-family: 'Consolas', 'Monaco', monospace;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
   border: 1px solid #333;
+  overflow: hidden; /* 防止圆角溢出 */
 }
 
 .console-header {
   background: #2d2d2d;
-  color: #fff;
   padding: 10px 15px;
   border-bottom: 1px solid #444;
   font-size: 13px;
   font-weight: bold;
   letter-spacing: 1px;
+  color: #fff;
 }
 
 .console-content {
   padding: 15px;
-  overflow-y: auto; /* 允许纵向滚动 */
-  flex: 1; /* 占满剩余空间 */
+  overflow-y: auto;
+  flex: 1;
   background: #1e1e1e;
 }
 
-/* =========================
-   3. 日志行与消息样式
-   ========================= */
+/* 日志行 */
 .log-line {
-  display: flex; /* 使用 Flex 布局让时间和内容对齐 */
+  display: flex;
   align-items: flex-start;
-  margin-bottom: 8px; /* 增加行间距 */
-  border-bottom: 1px dashed #333; /* 增加分隔线方便阅读 */
+  margin-bottom: 8px;
+  border-bottom: 1px dashed #333;
   padding-bottom: 6px;
-  font-size: 14px;
-  line-height: 1.6;
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 .log-time {
-  color: #666; /* 时间显示为暗灰色 */
+  color: #666;
   margin-right: 12px;
   font-size: 12px;
-  min-width: 70px; /* 固定时间宽度，防止对不齐 */
-  user-select: none; /* 防止复制时选中时间 */
+  min-width: 65px;
+  user-select: none;
 }
 
 .log-msg {
-  white-space: pre-wrap; /* 🔥 关键：让 \n 能够换行显示 */
-  word-break: break-all; /* 防止长单词撑破容器 */
+  white-space: pre-wrap;
+  word-break: break-all;
   flex: 1;
 }
 
-/* =========================
-   4. 消息颜色定义 (语义化)
-   ========================= */
-/* 专家/Agent 说话：亮绿色 */
+/* 颜色定义 */
 .log-msg.info {
   color: #a6e22e;
 }
 
-/* 工具调用：黄色 + 斜体 */
+/* 绿色偏黄 (Monokai Green) */
 .log-msg.warning {
   color: #f1c40f;
   font-style: italic;
 }
 
-/* 成功结果：深绿色 + 加粗 */
+/* 黄色 */
 .log-msg.success {
   color: #2ecc71;
   font-weight: bold;
 }
 
-/* 错误信息：红色 */
+/* 纯绿 */
 .log-msg.danger {
   color: #f56c6c;
 }
 
-/* =========================
-   5. 动画效果 (光标闪烁)
-   ========================= */
+/* 红色 */
+
+/* 光标动画 */
 .loading-cursor {
   display: inline-block;
   margin-left: 5px;
@@ -471,10 +457,37 @@ onMounted(() => {
     opacity: 0;
   }
 }
-.drawer-footer {
+
+.config-panel {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  width: 100%;
+  flex-wrap: wrap; /* 防止小屏幕换行 */
+}
+
+.config-item {
+  display: flex;
+  align-items: center;
+  margin-right: 15px;
+}
+
+.config-panel {
+  display: flex;
+  align-items: center;
+  padding: 10px;
+  background: #f5f7fa;
+  border-radius: 4px;
+  margin-bottom: 10px;
+}
+
+.config-item {
+  display: flex;
+  align-items: center;
+}
+
+.label {
+  font-weight: bold;
+  font-size: 14px;
+  color: #606266;
+  margin-right: 8px;
 }
 </style>

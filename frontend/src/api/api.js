@@ -5,7 +5,7 @@ const api = axios.create({
     timeout: 300000 // 设长一点，Gemini 生成比较慢
 });
 
-export const getRequirements = () => api.get('/requirements');
+export const getRequirements = (params) => api.get('/requirements', { params });
 export const generateCases = (id) => api.post(`/requirements/${id}/generate`);
 export const getTestCases = (id) => api.get(`/requirements/${id}/cases`);
 export const getAllTestCases = (params) => api.get('/cases', { params });

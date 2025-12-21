@@ -8,8 +8,10 @@ from autogen_agentchat.agents import AssistantAgent
 
 # 导入项目模块
 from backend.agents.llm_factory import get_gemini_client
-from backend.models.db_tools import save_verified_test_case, get_existing_case_titles
+from backend.database.db_tools import save_verified_test_case, get_existing_case_titles
 from backend.utils.stream_utils import AutoGenStreamProcessor, format_sse
+from backend.database.case_db import save_case
+
 
 # -------------------------------------------------------------------------
 # 配置区域
@@ -27,7 +29,7 @@ AGENT_NAMES_MAP = {
 
 # 工具显示名称映射
 TOOL_NAMES_MAP = {
-    "save_verified_test_case": "💾 数据库入库"
+    "save_case": "💾 数据库入库"
 }
 
 # -------------------------------------------------------------------------
@@ -77,7 +79,7 @@ def create_test_reviewer():
     return AssistantAgent(
         name="test_reviewer",
         model_client=gemini_client,
-        tools=[save_verified_test_case],  # 工具需要引入 db_tools
+        tools=[save_case],  # 工具需要引入 db_tools
         system_message=f"""
         你是测试组长。
         

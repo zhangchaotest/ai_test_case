@@ -2,9 +2,13 @@ from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.responses import StreamingResponse # 🔥 必须引入这个，进行流式输出
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List
-from models import db_tools
+from database import db_tools
 from agents import agent_manager
-from backend.models import models
+from backend.database import models
+from database.models import PageResponse, Requirement
+
+from database import requirement_db, case_db
+
 
 app = FastAPI(title="AI Test Platform")
 
@@ -24,10 +28,12 @@ def startup():
     db_tools.seed_data()
 
 
-@app.get("/requirements", response_model=List[models.Requirement])
-def list_requirements():
-    return db_tools.get_requirements_list()
-
+@app.get("/requirements")
+def list_requirements(page: int = 1, size: int = 10, feature: str = None):
+    """
+    分页获取需求列表
+    """
+    return requirement_db.get_requirements_page(page, size, feature_name=feature)
 
 @app.post("/requirements/{req_id}/generate")
 async def generate_cases(req_id: int):
@@ -52,17 +58,11 @@ def get_cases(req_id: int):
     print(req_id)
     return db_tools.get_test_cases_by_req_id(req_id)
 
-# backend/main.py
-
-from typing import Optional
-
-# ... 其他代码 ...
-
 # 🔥 新增这个接口
-@app.get("/cases", response_model=List[models.TestCaseResponse])
-def list_test_cases(req_id: Optional[int] = None, title: Optional[str] = None):
-    """获取测试用例列表（支持筛选）"""
-    return db_tools.get_test_cases(req_id=req_id, title=title)
+@app.get("/cases") # 🔥 修改返回模型
+def list_cases(page: int = 1, size: int = 10, req_id: int = None):
+
+    return case_db.get_cases_page(page, size, req_id=req_id)
 
 
 @app.get("/requirements/{req_id}/generate_stream")

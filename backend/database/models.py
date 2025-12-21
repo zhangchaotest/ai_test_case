@@ -1,5 +1,6 @@
 from pydantic import BaseModel
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, TypeVar, Generic
+
 
 # 需求模型
 class Requirement(BaseModel):
@@ -24,3 +25,18 @@ class TestCaseResponse(BaseModel):
     case_type: Optional[str] = "Functional"
     test_data: Optional[Dict[str, Any]] = {}
     status: Optional[str] = "Active"
+
+class PageResponse(BaseModel):
+    total: int
+    items: List[Any]
+
+
+T = TypeVar('T')
+
+# 通用的分页响应结构
+class PageResponse(BaseModel, Generic[T]):
+    total: int
+    page: int
+    size: int
+    items: List[T]
+
