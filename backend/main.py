@@ -1,14 +1,15 @@
 from fastapi import FastAPI, HTTPException, BackgroundTasks
-from fastapi.responses import StreamingResponse # 🔥 必须引入这个，进行流式输出
+from fastapi.responses import StreamingResponse  # 🔥 必须引入这个，进行流式输出
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List
+
+from pydantic import BaseModel
+
 from database import db_tools
 from agents import agent_manager
-from backend.database import models
-from database.models import PageResponse, Requirement
+
 
 from database import requirement_db, case_db
-
 
 app = FastAPI(title="AI Test Platform")
 
@@ -35,36 +36,6 @@ def list_requirements(page: int = 1, size: int = 10, feature: str = None):
     """
     return requirement_db.get_requirements_page(page, size, feature_name=feature)
 
-@app.post("/requirements/{req_id}/generate")
-async def generate_cases(req_id: int):
-    """
-    触发生成用例。因为耗时较长，这里直接 await 等待结果。
-    前端需要展示 Loading 状态。
-    """
-    req = db_tools.get_requirement_by_id(req_id)
-    if not req:
-        raise HTTPException(status_code=404, detail="Requirement not found")
-    print(req)
-    try:
-        # 调用 AutoGen 逻辑
-        await agent_manager.run_generation_task(req_id, req['feature_name'], req['description'])
-        return {"status": "success", "message": "Test cases generated and saved."}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/requirements/{req_id}/cases", response_model=List[models.TestCaseResponse])
-def get_cases(req_id: int):
-    print(req_id)
-    return db_tools.get_test_cases_by_req_id(req_id)
-
-# 🔥 新增这个接口
-@app.get("/cases") # 🔥 修改返回模型
-def list_cases(page: int = 1, size: int = 10, req_id: int = None):
-
-    return case_db.get_cases_page(page, size, req_id=req_id)
-
-
 @app.get("/requirements/{req_id}/generate_stream")
 async def generate_cases_stream(req_id: int, count: int = 5, mode: str = "new"):
     """
@@ -84,6 +55,27 @@ async def generate_cases_stream(req_id: int, count: int = 5, mode: str = "new"):
         ),
         media_type="text/event-stream"
     )
+
+@app.get("/cases")  # 🔥 修改返回模型
+def list_cases(page: int = 1, size: int = 10, req_id: int = None, status: str = None):
+
+    return case_db.get_cases_page(page, size, req_id=req_id, status=status)
+
+class BatchStatusRequest(BaseModel):
+    ids: List[int]
+    status: str
+
+
+# 2. 新增批量评审接口
+@app.put("/cases/batch_status")
+def update_case_status(req: BatchStatusRequest):
+    """批量更新用例状态 (评审通过/废弃)"""
+    success = case_db.batch_update_status(req.ids, req.status)
+    if success:
+        return {"status": "success", "message": "操作成功"}
+    raise HTTPException(status_code=500, detail="更新数据库失败")
+
+
 if __name__ == "__main__":
     import uvicorn
 
