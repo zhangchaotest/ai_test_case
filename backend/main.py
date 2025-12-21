@@ -9,7 +9,7 @@ from database import db_tools
 from agents import agent_manager
 
 
-from database import requirement_db, case_db
+from backend.database import init_db, project_db, requirement_db, case_db
 
 app = FastAPI(title="AI Test Platform")
 
@@ -25,8 +25,8 @@ app.add_middleware(
 # 初始化数据库
 @app.on_event("startup")
 def startup():
-    db_tools.init_db()
-    db_tools.seed_data()
+    init_db.init_tables()
+    init_db.seed_data()
 
 
 @app.get("/requirements")
@@ -75,6 +75,41 @@ def update_case_status(req: BatchStatusRequest):
         return {"status": "success", "message": "操作成功"}
     raise HTTPException(status_code=500, detail="更新数据库失败")
 
+
+# 1. 项目相关接口
+class ProjectCreate(BaseModel):
+    name: str
+    desc: str = ""
+
+@app.get("/projects")
+def get_projects():
+    return project_db.get_all_projects()
+
+@app.post("/projects")
+def create_project_api(p: ProjectCreate):
+    pid = project_db.create_project(p.name, p.desc)
+    if pid == -1: raise HTTPException(400, "项目名已存在")
+    return {"id": pid, "name": p.name}
+
+# 2. 需求分析流接口
+class AnalysisRequest(BaseModel):
+    project_id: int
+    raw_req: str
+    instruction: str = ""
+
+# 注意：GET 不适合传大文本，这里改用 POST 配合 StreamingResponse 稍微麻烦点，
+# 或者继续用 GET 但把参数拼在 URL (受长度限制)。
+# 最佳实践：使用 POST 且流式返回。但 EventSource 标准只支持 GET。
+# 变通方案：前端用 fetch + ReadableStream (我们之前已经在用了)，所以这里可以用 POST。
+
+@app.post("/analyze/stream")
+async def analyze_requirement_stream(body: AnalysisRequest):
+    return StreamingResponse(
+        agent_manager.run_requirement_analysis_stream(
+            body.project_id, body.raw_req, body.instruction
+        ),
+        media_type="text/event-stream"
+    )
 
 if __name__ == "__main__":
     import uvicorn

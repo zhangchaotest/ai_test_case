@@ -39,4 +39,3 @@ class PageResponse(BaseModel, Generic[T]):
     page: int
     size: int
     items: List[T]
-

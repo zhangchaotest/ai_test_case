@@ -6,6 +6,7 @@ const api = axios.create({
 });
 
 export const getRequirements = (params) => api.get('/requirements', { params });
-export const generateCases = (id) => api.post(`/requirements/${id}/generate`);
-export const getTestCases = (id) => api.get(`/requirements/${id}/cases`);
 export const getAllTestCases = (params) => api.get('/cases', { params });
+
+// 批量更新测试用例状态方法
+export const batchUpdateCaseStatus = (data) => api.put('/cases/batch_status', data);

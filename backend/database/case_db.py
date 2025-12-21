@@ -7,7 +7,7 @@
 @Date    ：2025/12/21 12:50
 @Desc    ：
 """
-from typing import Dict, Any
+from typing import Dict, Any, List
 
 # backend/database/case_db.py
 
@@ -15,7 +15,7 @@ from .base import get_conn, execute_page_query, safe_json_loads
 import json
 
 
-def get_cases_page(page=1, size=10, req_id=None, title=None):
+def get_cases_page(page=1, size=10, req_id=None, title=None,status=None):
     conn = get_conn()
     cursor = conn.cursor()
 
@@ -29,6 +29,10 @@ def get_cases_page(page=1, size=10, req_id=None, title=None):
     if title:
         where_clauses.append("case_title LIKE ?")
         params.append(f"%{title}%")
+
+    if status: # 🔥 新增 status 过滤逻辑
+        where_clauses.append("status = ?")
+        params.append(status)
 
     where_str = " AND ".join(where_clauses)
 
@@ -99,7 +103,7 @@ def save_case(data: Dict[str, Any]) -> str:
             data.get('priority', 'P1'),
             data.get('case_type', 'Functional'),
             test_data_json,  # 存 JSON 字符串
-            'Active'  # 默认为生效状态
+            'Draft'  # 默认为草稿状态
         )
 
         # 4. 执行插入
@@ -123,7 +127,7 @@ def save_case(data: Dict[str, Any]) -> str:
             conn.close()
 
 
-def get_existing_titles(req_id: int):
+def get_existing_case_titles(req_id: int):
     """获取指定需求下所有已存在的用例标题"""
     conn = get_conn()
     cursor = conn.cursor()
@@ -132,3 +136,27 @@ def get_existing_titles(req_id: int):
     conn.close()
     # 返回列表: ['登录成功', '密码错误', ...]
     return [row['case_title'] for row in rows]
+
+def batch_update_status(case_ids: List[int], new_status: str):
+    """批量更新用例状态"""
+    if not case_ids:
+        return False
+
+    conn = get_conn()
+    cursor = conn.cursor()
+    try:
+        # 动态生成 SQL: UPDATE test_cases SET status = ? WHERE id IN (?,?,?)
+        placeholders = ','.join(['?'] * len(case_ids))
+        sql = f"UPDATE test_cases SET status = ? WHERE id IN ({placeholders})"
+
+        # 参数列表: [status, id1, id2, id3...]
+        params = [new_status] + case_ids
+
+        cursor.execute(sql, params)
+        conn.commit()
+        return True
+    except Exception as e:
+        print(f"❌ 批量更新失败: {e}")
+        return False
+    finally:
+        conn.close()
