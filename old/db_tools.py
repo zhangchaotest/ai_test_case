@@ -16,7 +16,7 @@ from typing import Annotated, List, Dict
 
 # 1. 初始化数据库表 (为了演示简单，用 SQLite)
 def init_db():
-    conn = sqlite3.connect("../requirements.db")
+    conn = sqlite3.connect("../backend/requirements.db")
     cursor = conn.cursor()
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS functional_points (
@@ -71,7 +71,7 @@ def save_functional_point(
     将拆分出的单个功能点保存到数据库中。
     """
     try:
-        conn = sqlite3.connect("../requirements.db")
+        conn = sqlite3.connect("../backend/requirements.db")
         cursor = conn.cursor()
         cursor.execute(
             "INSERT INTO functional_points (module_name, feature_name, description, priority) VALUES (?, ?, ?, ?)",
@@ -88,7 +88,7 @@ def save_functional_point(
 
 def get_all_requirements() -> List[Dict]:
     """[给主程序用] 获取所有待测试的功能点"""
-    conn = sqlite3.connect("../requirements.db")
+    conn = sqlite3.connect("../backend/requirements.db")
     conn.row_factory = sqlite3.Row # 让结果像字典一样访问
     cursor = conn.cursor()
     # 使用 SQL 过滤：只选出那些在 test_cases 表里找不到 ID 的需求
@@ -106,7 +106,7 @@ def get_all_requirements() -> List[Dict]:
 
 
 def get_test_cases(req_id=None):
-    conn = sqlite3.connect("../requirements.db")
+    conn = sqlite3.connect("../backend/requirements.db")
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
 
@@ -152,7 +152,7 @@ def save_verified_test_case(
         # ensure_ascii=False 保证存进去的是中文，不是 \uXXXX
         steps_json = json.dumps(steps, ensure_ascii=False)
 
-        conn = sqlite3.connect("../requirements.db")
+        conn = sqlite3.connect("../backend/requirements.db")
         cursor = conn.cursor()
         cursor.execute(
             """INSERT INTO test_cases

@@ -3,11 +3,10 @@ import asyncio
 import sys
 from autogen_agentchat.teams import RoundRobinGroupChat
 from autogen_agentchat.conditions import TextMentionTermination
-from autogen_agentchat.ui import Console
 
 # 导入我们的组件
 from my_agents import create_test_generator, create_test_reviewer
-from db_tools import get_all_requirements
+from old.db_tools import get_all_requirements
 
 # 编码修复
 if sys.stdout.encoding != 'utf-8':

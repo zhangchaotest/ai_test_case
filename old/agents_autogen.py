@@ -32,7 +32,7 @@ from old.llms import gemini_llm
 
 
 async def get_file_content():
-    file_path = f"/Users/zhangchao/code/work/ai_test_case_fast/backend/requirement/xuqiu.md"
+    file_path = f"/backend/requirement/xuqiu.md"
     try:
         with open(file_path, 'r', encoding='utf-8') as file:
             content = file.read()

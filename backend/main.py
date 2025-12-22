@@ -6,10 +6,10 @@ from typing import List
 from pydantic import BaseModel
 
 from database import db_tools
-from agents import agent_manager
-
+# from agents import agent_manager
 
 from backend.database import init_db, project_db, requirement_db, case_db
+from backend.agents import run_case_generation_stream, run_requirement_analysis_stream
 
 app = FastAPI(title="AI Test Platform")
 
@@ -47,7 +47,7 @@ async def generate_cases_stream(req_id: int, count: int = 5, mode: str = "new"):
 
     # 返回流式响应，media_type 必须是 text/event-stream
     return StreamingResponse(
-        agent_manager.run_stream_task(
+        run_case_generation_stream(
             req_id, req['feature_name'],
             req['description'],
             target_count=count,
@@ -105,7 +105,7 @@ class AnalysisRequest(BaseModel):
 @app.post("/analyze/stream")
 async def analyze_requirement_stream(body: AnalysisRequest):
     return StreamingResponse(
-        agent_manager.run_requirement_analysis_stream(
+        run_requirement_analysis_stream(
             body.project_id, body.raw_req, body.instruction
         ),
         media_type="text/event-stream"

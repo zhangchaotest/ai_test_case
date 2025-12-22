@@ -1,3 +1,14 @@
+#!/usr/bin/env python
+# -*- coding: UTF-8 -*-
+"""
+@Project ：ai_test_case_fast 
+@File    ：case_agent.py
+@Author  ：张超
+@Date    ：2025/12/22 09:20
+@Desc    ：
+"""
+# backend/agents/case_agent.py
+
 import json
 import re
 import traceback
@@ -5,14 +16,11 @@ import traceback
 from autogen_agentchat.teams import RoundRobinGroupChat
 from autogen_agentchat.conditions import TextMentionTermination
 from autogen_agentchat.agents import AssistantAgent
-from autogen_agentchat.ui import Console
 
 # 导入项目模块
 from backend.agents.llm_factory import get_gemini_client
+from backend.database.case_db import save_case, get_existing_case_titles
 from backend.utils.stream_utils import AutoGenStreamProcessor, format_sse
-from backend.database.case_db import save_case,get_existing_case_titles
-from backend.database.requirement_db import save_analyzed_point
-
 
 # -------------------------------------------------------------------------
 # 配置区域
@@ -30,9 +38,9 @@ AGENT_NAMES_MAP = {
 
 # 工具显示名称映射
 TOOL_NAMES_MAP = {
-    "save_case": "💾 数据库入库",
-    "save_analyzed_point": "📝 功能点拆解入库" # 新增
+    "save_case": "💾 数据库入库"
 }
+
 
 # -------------------------------------------------------------------------
 # Agent 定义区域
@@ -42,31 +50,31 @@ def create_test_generator(target_count: int = 5):
     """
     创建用例生成 Agent (Generator)
     :param target_count: 目标生成数量
-    :return:
     """
-    print(f"🔍 [DEBUG] 正在创建 Generator Agent, 目标数量: {target_count}")  # <--- 埋点 1
+    print(f"🔍 [DEBUG] 正在创建 Generator Agent, 目标数量: {target_count}")
 
     return AssistantAgent(
         name="test_generator",
         model_client=gemini_client,
         system_message=f"""
         你是一个专业的测试工程师。
-        
+
         【任务目标】
-        针对给定的功能点，计约 **{target_count}** 个测试用例。
-        
+        针对给定的功能点，设计约 **{target_count}** 个测试用例。
+
         【生成策略】
         1. 优先覆盖：P0级核心功能 > 常见异常场景 > 关键边界值。
         2. **不要** 生成过于生僻或重复的用例（如网络断开、服务器物理损坏等）。
         3. 请一次性将这些用例的 JSON 结构输出完毕，不要分批次输出。
-        
-        【格式要求】
-        输出标准 JSON 格式的步骤 (step_id, action, expected)。
+
+        【重要格式要求】
+        输出的 JSON 列表中，每个用例必须包含以下字段：
         - "case_title": 用例标题 (必须有，且简洁明了)
         - "steps": 步骤列表 [{{"step_id": 1, "action": "...", "expected": "..."}}]
         - "priority": 优先级 (P0-P2)
         - "case_type": 类型 (功能测试用例/反向测试用例/边界值测试用例)
 
+        注意：steps 字段里的 JSON 括号必须完整。
         不要输出 markdown 代码块，直接输出结构化信息。
         """
     )
@@ -77,21 +85,21 @@ def create_test_reviewer():
     创建用例评审 Agent (Reviewer)
     拥有入库工具权限
     """
-
     return AssistantAgent(
         name="test_reviewer",
         model_client=gemini_client,
-        tools=[save_case],  # 工具需要引入 db_tools
-        system_message=f"""
+        tools=[save_case],  # 绑定用例保存工具
+        system_message="""
         你是测试组长。
-        
+
         【执行流程】
         1. 审查 Generator 生成的用例。
-        2. 如果用例有效，**立即调用工具** `save_verified_test_case` 进行入库。
+        2. 如果用例有效，**立即调用工具** `save_case` 进行入库。
         3. **重要：** 当本批次用例全部保存完毕后，**必须** 立即回复关键词 "TERMINATE" 来结束任务。
         4. 不要在这个时候让 Generator 继续生成新的用例，直接结束。
         """
     )
+
 
 # -------------------------------------------------------------------------
 # 辅助解析函数
@@ -103,7 +111,6 @@ def parse_generator_output(content: str):
     用于在前端日志中展示“正在构思xxx用例”
     """
     # 尝试提取 case_title 或 title 字段
-    # 兼容 "case_title": "xxx" 和 "title": "xxx"
     titles = re.findall(r'["\'](case_)?title["\']\s*:\s*["\'](.*?)["\']', content, re.IGNORECASE)
 
     # re.findall 返回的是元组列表 [('case_', '标题1'), ('', '标题2')]，需要提取第二个元素
@@ -120,32 +127,15 @@ def parse_generator_output(content: str):
 
     return "正在构思测试场景..."
 
-async def run_generation_task(req_id: int, feature_name: str, desc: str):
-    """触发 AutoGen 流程"""
-    generator = create_test_generator()
-    reviewer = create_test_reviewer()
 
-    termination = TextMentionTermination("TERMINATE")
-    team = RoundRobinGroupChat([generator, reviewer], termination_condition=termination, max_turns=8)
+# -------------------------------------------------------------------------
+# 主业务流程 (Case Generation)
+# -------------------------------------------------------------------------
 
-    task_prompt = f"""
-    【任务】为功能点编写测试用例并入库。
-    功能ID: {req_id}
-    功能名称: {feature_name}
-    描述: {feature_name}
-
-    注意：保存时 requirement_id 必须为 {req_id}。
+async def run_case_generation_stream(req_id: int, feature_name: str, desc: str, target_count: int = 5,
+                                     mode: str = "new"):
     """
-
-    # 运行
-    await Console(team.run_stream(task=task_prompt))
-    print(f"--- 处理结束 ---")
-
-    return True
-
-async def run_stream_task(req_id: int, feature_name: str, desc: str, target_count: int = 5, mode: str = "new"):
-    """
-    业务入口函数：组装 Team -> 启动流 -> 移交处理器
+    用例生成流式任务入口
 
     :param req_id: 需求ID
     :param feature_name: 需求名称
@@ -153,7 +143,7 @@ async def run_stream_task(req_id: int, feature_name: str, desc: str, target_coun
     :param target_count: 目标生成数量
     :param mode: 'new' (全新生成) 或 'append' (追加生成)
     """
-    print(f"🚀 [DEBUG] 进入 run_stream_task. ID={req_id}, Count={target_count}, Mode={mode}")
+    print(f"🚀 [Case Stream] 开始处理 ID: {req_id}, Mode: {mode}")
 
     # --- 1. 发送初始化系统通知 (SSE) ---
     start_info = {
@@ -177,20 +167,21 @@ async def run_stream_task(req_id: int, feature_name: str, desc: str, target_coun
 
         if mode == "append":
             # 增量模式：查出已有用例，防止重复
+            # 注意：这里的 get_existing_case_titles 来自 backend.database.case_db
             existing_titles = get_existing_case_titles(req_id)
             existing_json = json.dumps(existing_titles, ensure_ascii=False)
 
             existing_context = f"""
             【已存在用例列表】
             数据库中已经有了以下用例，请**绝对不要重复**：
-             {existing_json}
-             """
+            {existing_json}
+            """
 
             focus_instruction = """
-             请专注于 **查漏补缺**：
-             1. 重点补充：**异常场景**、**边界值**、**安全性**、**性能压力** 相关的用例。
-             2. 避开已有的正常流程。
-             """
+            请专注于 **查漏补缺**：
+            1. 重点补充：**异常场景**、**边界值**、**安全性**、**性能压力** 相关的用例。
+            2. 避开已有的正常流程。
+            """
 
         # --- 3. 动态配置轮次 ---
         # 假设每轮能生成 3-5 条，计算需要的最大轮次，防止截断
@@ -213,28 +204,25 @@ async def run_stream_task(req_id: int, feature_name: str, desc: str, target_coun
         功能ID: {req_id}
         功能名称: {feature_name}
         描述: {desc}
-        
+
         【当前模式】：{'🔥 增量补充模式' if mode == 'append' else '🚀 全新生成模式'}
         目标生成数量：**{target_count} 条左右**。
-        
+
         {existing_context}
-        
+
         【生成策略】
         {focus_instruction}
-        
+
         【执行要求】
         1. 保存时 requirement_id 必须为 {req_id}。
-        2. 目标生成数量：**{target_count} 条左右**。。
-        3. 如果数量较多，你可以分多次（多轮对话）生成，每次生成 5 条，直到凑够数量。
-        
+        2. 如果数量较多，你可以分多次（多轮对话）生成，每次生成 5 条，直到凑够数量。
+
+
         【重要执行指令】
         Generator，请立即开始工作！
         请先回复一句：“收到，正在为 [ID:{req_id}] 生成测试用例...”，然后紧接着输出 JSON 数据。
         **不要保持沉默！**
-
         """
-
-        print(f"🚀 [Stream] 开始处理 ID: {req_id}")
 
         # --- 5. 初始化通用流式处理器 ---
         processor = AutoGenStreamProcessor(
@@ -245,6 +233,7 @@ async def run_stream_task(req_id: int, feature_name: str, desc: str, target_coun
                 "test_generator": parse_generator_output
             }
         )
+
         # --- 6. 启动流并移交处理 ---
         # team.run_stream 返回的是原始迭代器，直接传给 processor 进行标准化处理
         raw_stream = team.run_stream(task=task_prompt)
@@ -252,8 +241,7 @@ async def run_stream_task(req_id: int, feature_name: str, desc: str, target_coun
         async for sse_event in processor.process_stream(raw_stream):
             yield sse_event
 
-        print("✅ [DEBUG] run_stream_task 执行完毕")
-
+        print("✅ [DEBUG] run_case_generation_stream 执行完毕")
 
     except Exception as e:
         # --- 7. 全局异常捕获 ---
@@ -270,84 +258,3 @@ async def run_stream_task(req_id: int, feature_name: str, desc: str, target_coun
 
         # 发送空的结束信号，避免前端无限等待
         yield format_sse("finish", "{}")
-
-
-# 定义需求分析 Agent
-def create_requirement_analyst():
-    return AssistantAgent(
-        name="req_analyst",
-        model_client=gemini_client,
-        tools=[save_analyzed_point],  # 绑定新工具
-        system_message="""
-        你是一个资深产品经理和需求分析师。
-
-        【任务目标】
-        读取用户的原始需求文本（可能包含补充指令），将其拆解为细粒度的“功能点”。
-
-        【执行步骤】
-        1. 分析用户输入的原始需求。
-        2. 将大段文本拆解为独立的、可测试的功能点 (Feature)。
-        3. 对每个功能点，调用工具 `save_analyzed_point` 进行保存。
-
-        【工具参数要求】
-        - project_id: (从任务中获取)
-        - module_name: 根据功能归类 (如：用户中心、订单模块)
-        - feature_name: 功能名称 (简练)
-        - description: 详细描述和验收标准
-        - priority: P0/P1/P2
-        - source_content: (填入用户输入的原始需求片段，用于追溯)
-
-        【结束】
-        所有功能点拆解并保存完毕后，回复 TERMINATE。
-        """
-    )
-
-
-# 2. 定义需求分析流式任务
-async def run_requirement_analysis_stream(project_id: int, raw_req: str, instruction: str = ""):
-    print(f"🚀 [Analysis Stream] Project: {project_id}")
-
-    # 初始化
-    analyst = create_requirement_analyst()
-    # 这里不需要 Reviewer，分析师自己拆解即可，或者你可以加一个 Reviewer 来审核拆解质量
-    # 为了简化，这里用单人模式或者自言自语模式，但 RoundRobin 需要至少2人，
-    # 我们复用之前的 UserProxy 思想，或者创建一个 dummy user。
-    # 为了方便，我们复用 Reviewer 但不给它工具，只让它负责结束。
-    reviewer = AssistantAgent(
-        name="req_reviewer",
-        model_client=gemini_client,
-        system_message="你负责确认分析师是否已完成所有拆解。如果完成，回复 TERMINATE。"
-    )
-
-    termination = TextMentionTermination("TERMINATE")
-    team = RoundRobinGroupChat([analyst, reviewer], termination_condition=termination, max_turns=10)
-
-    task_prompt = f"""
-    【需求分析任务】
-    项目ID: {project_id}
-
-    【原始需求内容】
-    {raw_req}
-
-    【补充指令】
-    {instruction}
-
-    请开始拆解功能点并入库。
-    注意：调用 save_analyzed_point 时，务必将 project_id={project_id} 和 source_content (原始需求摘要) 填入。
-    """
-
-    # ... (使用与 run_stream_task 相同的 processor 逻辑) ...
-    # 我们可以复用 AutoGenStreamProcessor，只需要注册新的解析器即可
-
-    processor = AutoGenStreamProcessor(
-        agent_names={"req_analyst": "🧐 需求分析师", "req_reviewer": "✅ 流程确认"},
-        tool_names=TOOL_NAMES_MAP
-    )
-
-    # 发送开场白
-    yield format_sse("message", json.dumps({
-        "type": "log", "source": "系统", "content": "正在启动需求分析引擎..."
-    }, ensure_ascii=False))
-
-    async for sse in processor.process_stream(team.run_stream(task=task_prompt)):
-        yield sse

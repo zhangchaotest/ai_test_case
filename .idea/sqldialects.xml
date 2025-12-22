@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="SqlDialectMappings">
-    <file url="file://$PROJECT_DIR$/backend/agents/db_tools.py" dialect="SQLite" />
     <file url="file://$PROJECT_DIR$/backend/database/db_tools.py" dialect="SQLite" />
     <file url="file://$PROJECT_DIR$/backend/database/init_db.py" dialect="SQLite" />
     <file url="file://$PROJECT_DIR$/old/database.py" dialect="SQLite" />
+    <file url="file://$PROJECT_DIR$/old/db_tools.py" dialect="SQLite" />
   </component>
 </project>

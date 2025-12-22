@@ -10,7 +10,7 @@
 # my_agents.py
 from autogen_agentchat.agents import AssistantAgent
 from llm_factory import get_gemini_client
-from db_tools import save_functional_point, save_verified_test_case  # 导入工具
+from old.db_tools import save_functional_point, save_verified_test_case  # 导入工具
 
 # 1. 先获取统一的 Gemini 客户端配置
 # 你也可以在这里为不同的 agent 获取不同的配置（例如 model 变了）
