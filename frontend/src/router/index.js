@@ -15,6 +15,12 @@ const routes = [
                 meta: {title: '智能需求分析', icon: 'Cpu'}
             },
             {
+                path: 'breakdown-list',
+                name: 'BreakdownList',
+                component: () => import('../views/BreakdownList.vue'),
+                meta: {title: '需求拆解结果', icon: 'List'}
+            },
+            {
                 path: 'requirements',
                 name: 'RequirementList',
                 component: () => import('../views/RequirementList.vue'),

@@ -36,6 +36,7 @@ def list_requirements(page: int = 1, size: int = 10, feature: str = None):
     """
     return requirement_db.get_requirements_page(page, size, feature_name=feature)
 
+
 @app.get("/requirements/{req_id}/generate_stream")
 async def generate_cases_stream(req_id: int, count: int = 5, mode: str = "new"):
     """
@@ -56,10 +57,11 @@ async def generate_cases_stream(req_id: int, count: int = 5, mode: str = "new"):
         media_type="text/event-stream"
     )
 
+
 @app.get("/cases")  # 🔥 修改返回模型
 def list_cases(page: int = 1, size: int = 10, req_id: int = None, status: str = None):
-
     return case_db.get_cases_page(page, size, req_id=req_id, status=status)
+
 
 class BatchStatusRequest(BaseModel):
     ids: List[int]
@@ -81,9 +83,11 @@ class ProjectCreate(BaseModel):
     name: str
     desc: str = ""
 
+
 @app.get("/projects")
 def get_projects():
     return project_db.get_all_projects()
+
 
 @app.post("/projects")
 def create_project_api(p: ProjectCreate):
@@ -91,11 +95,13 @@ def create_project_api(p: ProjectCreate):
     if pid == -1: raise HTTPException(400, "项目名已存在")
     return {"id": pid, "name": p.name}
 
+
 # 2. 需求分析流接口
 class AnalysisRequest(BaseModel):
     project_id: int
     raw_req: str
     instruction: str = ""
+
 
 # 注意：GET 不适合传大文本，这里改用 POST 配合 StreamingResponse 稍微麻烦点，
 # 或者继续用 GET 但把参数拼在 URL (受长度限制)。
@@ -110,6 +116,49 @@ async def analyze_requirement_stream(body: AnalysisRequest):
         ),
         media_type="text/event-stream"
     )
+
+
+# 查询需求拆解列表 (ProTable用)
+@app.get("/requirement_breakdown")
+def list_breakdowns(
+    page: int = 1,
+    size: int = 10,
+    project_id: int = None,
+    feature: str = None,
+    status: str = None  # 🔥 新增状态筛选
+):
+    return requirement_db.get_breakdown_page(page, size, project_id, feature, status)
+
+class StatusUpdate(BaseModel):
+    status: str # Pass, Reject, Discard
+
+
+@app.put("/requirement_breakdown/{item_id}/status")
+def change_breakdown_status(item_id: int, body: StatusUpdate):
+    if body.status not in ['Pass', 'Reject', 'Discard', 'Pending']:
+        raise HTTPException(400, "无效的状态")
+
+    success = requirement_db.update_breakdown_status(item_id, body.status)
+    if success:
+        return {"status": "success", "message": f"状态已更新为 {body.status}"}
+    raise HTTPException(500, "状态更新失败")
+
+# 编辑功能点
+class BreakdownUpdate(BaseModel):
+    module_name: str
+    feature_name: str
+    description: str
+    acceptance_criteria: str
+    priority: str
+
+
+@app.put("/requirement_breakdown/{item_id}")
+def update_breakdown(item_id: int, body: BreakdownUpdate):
+    success = requirement_db.update_breakdown_item(item_id, body.dict())
+    if success:
+        return {"status": "success"}
+    raise HTTPException(500, "更新失败")
+
 
 if __name__ == "__main__":
     import uvicorn

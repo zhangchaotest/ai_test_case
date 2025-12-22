@@ -120,6 +120,27 @@ def init_tables():
                    )
                    """)
 
+    # 🔥 新增：需求拆解详情表 (Requirement Breakdown)
+    # 包含验收标准、评分、评审意见等高级字段
+    cursor.execute("""
+                   CREATE TABLE IF NOT EXISTS requirement_breakdown
+                   (
+                       id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                       project_id          INTEGER,
+                       module_name         TEXT,
+                       feature_name        TEXT,
+                       description         TEXT,
+                       acceptance_criteria TEXT, -- 验收标准
+                       requirement_type    TEXT, -- 新增/优化/Bug
+                       priority            TEXT, -- P0/P1/P2
+                       confidence_score    REAL, -- 置信度评分 (0.0 - 1.0)
+                       review_status       TEXT, -- 评审状态 (Pass/Review)
+                       review_comments     TEXT, -- AI评审意见
+                       source_content      TEXT, -- 原始需求片段
+                       created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                   )
+                   """)
+
     # --- 自动迁移逻辑 (Migration) ---
     # 防止旧数据库缺少字段导致报错
     try:
