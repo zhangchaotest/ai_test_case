@@ -29,8 +29,28 @@
       <el-table-column prop="module_name" label="模块" width="100"/>
       <el-table-column prop="feature_name" label="功能名称" width="180" show-overflow-tooltip/>
       <el-table-column prop="description" label="功能描述" show-overflow-tooltip/>
-      <el-table-column prop="source_content" label="原始需求" width="200" show-overflow-tooltip/>
-      <el-table-column prop="acceptance_criteria" label="验收标准" show-overflow-tooltip/>
+<!--      <el-table-column prop="source_content" label="原始需求" width="200" show-overflow-tooltip/>-->
+     <el-table-column label="原始需求" min-width="300">
+        <template #default="{ row }">
+          <ul class="ac-list">
+            <!-- 使用新函数 formatTextToList -->
+            <li v-for="(line, index) in formatTextToList(row.source_content)" :key="index">
+              {{ line }}
+            </li>
+          </ul>
+        </template>
+      </el-table-column>
+
+      <!-- 验收标准列 (保持类似逻辑) -->
+      <el-table-column label="验收标准" min-width="250">
+        <template #default="{ row }">
+          <ul class="ac-list">
+            <li v-for="(item, index) in formatTextToList(row.acceptance_criteria)" :key="index">
+              {{ item }}
+            </li>
+          </ul>
+        </template>
+      </el-table-column>
 
       <el-table-column prop="confidence_score" label="AI评分" width="80" align="center">
         <template #default="{ row }">
@@ -142,17 +162,48 @@ const handleStatus = async (row, status) => {
 
 // 编辑操作
 const openEdit = (row) => {
-  Object.assign(editForm, row)
+  // 深拷贝，避免修改弹窗影响表格显示
+  const formData = JSON.parse(JSON.stringify(row))
+
+  // 🔥 核心优化：把 JSON 数组格式转为多行文本，方便用户编辑
+  // 例如：["A", "B"] -> "A\nB"
+  const acList = formatTextToList(formData.acceptance_criteria)
+  formData.acceptance_criteria = acList.join('\n')
+
+  // source_content 本身通常就是文本，但为了保险也处理一下
+  // 如果之前存的是 JSON 格式，这里也会转成多行文本
+  const scList = formatTextToList(formData.source_content)
+  formData.source_content = scList.join('\n')
+
+  Object.assign(editForm, formData)
   editVisible.value = true
 }
 
+// 提交编辑
 const submitEdit = async () => {
   try {
-    await updateBreakdownItem(editForm.id, editForm)
+    // 克隆表单数据
+    const payload = { ...editForm }
+
+    // 🔥 核心优化：保存前，把多行文本转回 JSON 数组字符串
+    // 这样数据库里存的就是标准的 ["A", "B"] 格式，保持与 AI 生成格式一致
+
+    // 1. 处理验收标准 (转 JSON)
+    const acArray = payload.acceptance_criteria.split(/\r?\n/).filter(line => line.trim())
+    payload.acceptance_criteria = JSON.stringify(acArray)
+
+    // 2. 处理原始需求 (原始需求通常保留纯文本即可，如果你希望也存 JSON，可以用下面的逻辑)
+    // 这里建议保留纯文本格式，因为原始需求通常是一大段话
+    // payload.source_content = editForm.source_content
+
+    // 调用 API
+    await updateBreakdownItem(payload.id, payload)
+
     ElMessage.success('修改成功，状态已重置为待审核')
     editVisible.value = false
     tableRef.value?.refresh()
   } catch (e) {
+    console.error(e)
     ElMessage.error('修改失败')
   }
 }
@@ -166,12 +217,90 @@ const getStatusText = (s) => {
   const map = {'Pending': '待审核', 'Pass': '已通过', 'Reject': '已拒绝'}
   return map[s] || s
 }
+
+// 尝试解析验收标准字符串
+const parseCriteria = (str) => {
+  if (!str) return []
+  try {
+    // 尝试解析 JSON 字符串
+    const parsed = JSON.parse(str)
+    // 如果解析出来是数组，直接返回
+    if (Array.isArray(parsed)) {
+      return parsed
+    }
+    // 如果不是数组（比如是纯文本），按换行符分割
+    return String(str).split('\n')
+  } catch (e) {
+    // 解析失败（说明是普通字符串），按换行符分割
+    return String(str).split('\n')
+  }
+}
+
+// 判断是否需要列表展示
+const isJSONList = (str) => {
+  if (!str) return false
+  try {
+    const parsed = JSON.parse(str)
+    return Array.isArray(parsed) && parsed.length > 0
+  } catch (e) {
+    return false
+  }
+}
+
+// --- 文本格式化辅助函数 ---
+
+// 将内容转换为数组，用于 v-for 展示
+const formatTextToList = (content) => {
+  if (!content) return []
+
+  try {
+    // 1. 尝试当做 JSON 数组解析
+    const parsed = JSON.parse(content)
+    if (Array.isArray(parsed)) {
+      return parsed
+    }
+  } catch (e) {
+    // 忽略 JSON 解析错误，说明是普通文本
+  }
+
+  // 2. 如果不是 JSON 数组，按换行符拆分
+  // 过滤掉空行，处理 Windows/Unix 换行符
+  return String(content)
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .filter(line => line.length > 0)
+}
 </script>
 
 <style scoped>
 .view-container {
   background: #fff;
   padding: 20px;
+}
+.ac-list {
+  margin: 0;
+  padding-left: 12px;
+  list-style: none; /* 去掉默认圆点，我们自定义 */
+}
+
+.ac-list li {
+  position: relative;
+  line-height: 1.6; /* 增加行高，阅读更舒适 */
+  font-size: 13px;
+  color: #606266;
+  margin-bottom: 4px;
+}
+
+/* 自定义小圆点 */
+.ac-list li::before {
+  content: "";
+  position: absolute;
+  left: -10px;
+  top: 8px; /* 居中对齐 */
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background-color: #409eff; /* 蓝色圆点 */
 }
 </style>
 
