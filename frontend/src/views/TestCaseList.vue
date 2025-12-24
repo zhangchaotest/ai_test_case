@@ -29,20 +29,20 @@
       <!-- ================== 2. 工具栏插槽 (批量按钮) ================== -->
       <template #toolbar>
         <el-button
-          type="success"
-          :icon="Check"
-          plain
-          :disabled="selectedIds.length === 0"
-          @click="handleBatchReview('Active')"
+            type="success"
+            :icon="Check"
+            plain
+            :disabled="selectedIds.length === 0"
+            @click="handleBatchReview('Active')"
         >
           批量通过
         </el-button>
         <el-button
-          type="danger"
-          :icon="Close"
-          plain
-          :disabled="selectedIds.length === 0"
-          @click="handleBatchReview('Deprecated')"
+            type="danger"
+            :icon="Close"
+            plain
+            :disabled="selectedIds.length === 0"
+            @click="handleBatchReview('Deprecated')"
         >
           批量废弃
         </el-button>
@@ -70,7 +70,7 @@
         <template #default="{ row }">
           <div style="padding: 10px 50px; background: #fafafa; border-radius: 4px;">
             <p><strong>前置条件：</strong>{{ row.pre_condition || '无' }}</p>
-            <el-table :data="row.steps" border size="small" style="margin: 10px 0">
+            <el-table :data="row.steps" border size="small" :key="row.id" style="margin: 10px 0">
               <el-table-column prop="step_id" label="#" width="50"/>
               <el-table-column prop="action" label="步骤操作"/>
               <el-table-column prop="expected" label="预期结果"/>
@@ -106,12 +106,12 @@
 </template>
 
 <script setup>
-import { reactive, ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import { Check, Close } from '@element-plus/icons-vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import {reactive, ref} from 'vue'
+import {useRoute, useRouter} from 'vue-router'
+import {Check, Close} from '@element-plus/icons-vue'
+import {ElMessage, ElMessageBox} from 'element-plus'
 import ProTable from '../components/ProTable.vue'
-import { getAllTestCases, batchUpdateCaseStatus } from '../api/api.js' // 确保这里引入了批量接口
+import {getAllTestCases, batchUpdateCaseStatus} from '../api/api.js' // 确保这里引入了批量接口
 
 const route = useRoute()
 const router = useRouter()
@@ -119,6 +119,10 @@ const proTableRef = ref(null)
 
 // 选中项 ID 集合
 const selectedIds = ref([])
+
+defineOptions({
+  name: 'TestCaseList'
+})
 
 // 初始参数 (从路由获取 reqId)
 const initSearchParams = reactive({
@@ -142,13 +146,13 @@ const handleBatchReview = async (newStatus) => {
 
   try {
     await ElMessageBox.confirm(
-      `确定要将选中的 ${selectedIds.value.length} 条用例标记为【${actionText}】吗？`,
-      '批量评审确认',
-      {
-        type: 'warning',
-        confirmButtonText: '确定',
-        cancelButtonText: '取消'
-      }
+        `确定要将选中的 ${selectedIds.value.length} 条用例标记为【${actionText}】吗？`,
+        '批量评审确认',
+        {
+          type: 'warning',
+          confirmButtonText: '确定',
+          cancelButtonText: '取消'
+        }
     )
 
     // 调用后端接口
@@ -179,12 +183,12 @@ const goToRequirement = (reqId) => {
 }
 
 const getPriorityTag = (p) => {
-  const map = { 'P0': 'danger', 'P1': 'warning' }
+  const map = {'P0': 'danger', 'P1': 'warning'}
   return map[p] || 'success'
 }
 
 const getCaseTypeTag = (type) => {
-  const map = { 'Negative': 'danger', 'Boundary': 'warning', 'Performance': 'info' }
+  const map = {'Negative': 'danger', 'Boundary': 'warning', 'Performance': 'info'}
   return map[type] || 'primary'
 }
 
@@ -196,7 +200,7 @@ const getStatusBadgeType = (status) => {
 }
 
 const getStatusText = (status) => {
-  const map = { 'Active': '有效', 'Deprecated': '废弃', 'Draft': '草稿' }
+  const map = {'Active': '有效', 'Deprecated': '废弃', 'Draft': '草稿'}
   return map[status] || status
 }
 </script>
@@ -206,6 +210,7 @@ const getStatusText = (status) => {
   background: #fff;
   padding: 20px;
 }
+
 .status-dot {
   margin-right: 5px;
   vertical-align: middle;

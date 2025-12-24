@@ -146,7 +146,7 @@
 import {ref} from 'vue'
 import {useRouter} from 'vue-router'
 import {Download, MagicStick, Loading} from '@element-plus/icons-vue'
-import {getRequirements} from '../api/api.js'
+import {getRequirements,BASE_URL} from '../api/api.js'
 import ProTable from '../components/ProTable.vue'
 import {ElMessage} from 'element-plus'
 import {QuestionFilled} from '@element-plus/icons-vue' // 记得引入图标
@@ -169,6 +169,9 @@ const isAppendMode = ref(true)
 const handleExport = () => {
   ElMessage.success('正在导出 Excel...')
 }
+defineOptions({
+  name: 'RequirementList'
+})
 
 // 跳转到用例列表
 const goToCases = (reqId) => {
@@ -239,7 +242,7 @@ const startGenerate = async () => {
     // 🔥 拼接 URL：带上 count 和 mode
     // mode 参数需要后端支持 (根据之前的后端代码改造)
     const modeParam = isAppendMode.value ? 'append' : 'new'
-    const url = `http://localhost:8000/requirements/${row.id}/generate_stream?count=${targetCount.value}&mode=${modeParam}`
+    const url = `${BASE_URL}/requirements/${row.id}/generate_stream?count=${targetCount.value}&mode=${modeParam}`
 
     const response = await fetch(url)
 

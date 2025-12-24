@@ -134,6 +134,10 @@ const savedCount = ref(0)
 const logs = ref([])
 const consoleRef = ref(null)
 
+defineOptions({
+  name: 'RequirementAnalysis'
+})
+
 // 表单数据
 const form = reactive({
   projectId: null,

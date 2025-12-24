@@ -62,6 +62,10 @@ const loading = ref(false)
 const tableData = ref([])
 const filters = reactive({ reqId: '' })
 
+defineOptions({
+  name: 'TestExecution'
+})
+
 const fetchData = async () => {
   loading.value = true
   try {

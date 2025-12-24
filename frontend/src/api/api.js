@@ -1,11 +1,11 @@
 import axios from 'axios';
 
+// export const BASE_URL = 'http://localhost:8888'
+export const BASE_URL = 'http://10.0.220.99:8888'
 const api = axios.create({
-    baseURL: 'http://localhost:8000', // 指向 FastAPI 地址
+    baseURL: BASE_URL, // 指向 FastAPI 地址
     timeout: 300000 // 设长一点，Gemini 生成比较慢
 });
-
-export const BASE_URL = 'http://localhost:8000'
 
 export const getRequirements = (params) => api.get('/requirements', { params });
 export const getAllTestCases = (params) => api.get('/cases', { params });

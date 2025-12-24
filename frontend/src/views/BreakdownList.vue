@@ -99,6 +99,10 @@ const initParams = reactive({})
 const editVisible = ref(false)
 const editForm = reactive({})
 
+defineOptions({
+  name: 'BreakdownList'
+})
+
 // 加载项目用于筛选
 onMounted(async () => {
   const res = await getProjects()

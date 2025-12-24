@@ -23,12 +23,13 @@
       </div>
 
       <el-table
-        v-loading="loading"
-        :data="tableData"
-        border
-        stripe
-        style="width: 100%"
-        v-bind="$attrs"
+          v-loading="loading"
+          :data="tableData"
+          border
+          stripe
+          style="width: 100%"
+          row-key="id"
+          v-bind="$attrs"
       >
         <!-- 这里的 slot 用于自定义列 -->
         <slot></slot>
@@ -37,13 +38,13 @@
       <!-- 3. 翻页器 -->
       <div class="pagination-wrapper">
         <el-pagination
-          v-model:current-page="pagination.page"
-          v-model:page-size="pagination.size"
-          :page-sizes="[10, 20, 50, 100]"
-          layout="total, sizes, prev, pager, next, jumper"
-          :total="total"
-          @size-change="handleSizeChange"
-          @current-change="handleCurrentChange"
+            v-model:current-page="pagination.page"
+            v-model:page-size="pagination.size"
+            :page-sizes="[10, 20, 50, 100]"
+            layout="total, sizes, prev, pager, next, jumper"
+            :total="total"
+            @size-change="handleSizeChange"
+            @current-change="handleCurrentChange"
         />
       </div>
     </el-card>
@@ -51,14 +52,14 @@
 </template>
 
 <script setup>
-import { Search, Refresh } from '@element-plus/icons-vue'
-import { usePageTable } from '../hooks/usePageTable'
+import {Search, Refresh} from '@element-plus/icons-vue'
+import {usePageTable} from '../hooks/usePageTable'
 
 const props = defineProps({
   // 必传：API 请求函数
-  api: { type: Function, required: true },
+  api: {type: Function, required: true},
   // 初始搜索参数
-  initParam: { type: Object, default: () => ({}) }
+  initParam: {type: Object, default: () => ({})}
 })
 
 // 使用刚才定义的 Hook
@@ -84,7 +85,17 @@ defineExpose({
 </script>
 
 <style scoped>
-.filter-container { margin-bottom: 10px; }
-.pagination-wrapper { margin-top: 20px; display: flex; justify-content: flex-end; }
-.toolbar { margin-bottom: 15px; }
+.filter-container {
+  margin-bottom: 10px;
+}
+
+.pagination-wrapper {
+  margin-top: 20px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.toolbar {
+  margin-bottom: 15px;
+}
 </style>
