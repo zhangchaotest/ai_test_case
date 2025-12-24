@@ -85,43 +85,81 @@ def save_analyzed_point(data: Dict[str, Any]) -> str:
 
 
 def save_breakdown_item(data: Dict[str, Any]) -> str:
-    """
-    保存需求分解项 (Agent调用)
-    """
     conn = get_conn()
     cursor = conn.cursor()
+
+    # 解包逻辑保持不变
+    actual_data = data
+    if 'data' in data and isinstance(data['data'], dict):
+        actual_data = data['data']
+
+    # --- 🔥 新增：防重检查 ---
+    # 逻辑：同一个项目下，如果“功能名称”和“原始需求片段”完全一致，则视为重复，不再插入
+    # 注意：这里判断标准可以根据你的业务调整，比如只判断 feature_name + project_id
+    project_id = actual_data.get('project_id')
+    feature_name = actual_data.get('feature_name') or actual_data.get('title')
+    source_content = actual_data.get('source_content') or actual_data.get('source_snippet')
+
+    check_sql = """
+                SELECT id \
+                FROM requirement_breakdown
+                WHERE project_id = ? \
+                  AND feature_name = ? \
+                  AND source_content = ? \
+                """
+    cursor.execute(check_sql, (project_id, feature_name, source_content))
+    existing_row = cursor.fetchone()
+
+    if existing_row:
+        print(f"⚠️ [DB Skip] 检测到重复数据 (ID: {existing_row[0]}), 跳过写入。")
+        conn.close()
+        # 返回已存在的ID，假装成功，让流程继续结束
+        return f"ID: {existing_row[0]} (已存在，跳过写入)"
+    # -----------------------
+
+    # 打印调试，确认解包是否成功
+    print(f"🐛 [DEBUG SAVE] 正在保存: {actual_data.get('feature_name', '未命名')}")
+    # -------------------------------------------------------
+
     try:
         sql = """
-            INSERT INTO requirement_breakdown 
-            (project_id, module_name, feature_name, description, acceptance_criteria,
-             requirement_type, priority, confidence_score, review_status, review_comments, source_content) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """
-        # 🔥 核心修改：
-        # 1. 确保 feature_name 有值，如果是 '未命名'，尝试从 description 截取
-        feat_name = data.get('feature_name', '未命名')
-        if feat_name == '未命名' and data.get('description'):
-             feat_name = data['description'][:10] # 简略处理
+              INSERT INTO requirement_breakdown
+              (project_id, module_name, feature_name, description, acceptance_criteria,
+               requirement_type, priority, confidence_score, review_status, review_comments, source_content)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) \
+              """
+
+        # 处理 feature_name (容错)
+        feat_name = actual_data.get('feature_name') or actual_data.get('title') or '未命名'
+        if feat_name == '未命名' and actual_data.get('description'):
+            feat_name = actual_data['description'][:15]
+
+            # 处理 source_content (容错)
+        src_content = actual_data.get('source_content') or actual_data.get('source_snippet') or ''
+
         params = (
-            data.get('project_id'),
-            data.get('module_name', '通用'),
+            actual_data.get('project_id'),
+            actual_data.get('module_name', '通用'),
             feat_name,
-            data.get('description', ''),
-            data.get('acceptance_criteria', ''),
-            data.get('requirement_type', '功能需求'),
-            data.get('priority', 'P1'),
-            data.get('confidence_score', 0.8),
-            # data.get('review_status', 'Pending'),
-            'Pending',
-            data.get('review_comments', ''),
-            data.get('source_content', '')
+            actual_data.get('description', ''),
+            actual_data.get('acceptance_criteria', ''),
+            actual_data.get('requirement_type', '功能需求'),
+            actual_data.get('priority', 'P1'),
+            actual_data.get('confidence_score', 0.5),
+
+            'Pending',  # 强制待审核
+
+            actual_data.get('review_comments', ''),
+            src_content
         )
         cursor.execute(sql, params)
         conn.commit()
         return f"ID: {cursor.lastrowid}"
+    except Exception as e:
+        print(f"❌ Save Error: {e}")
+        return f"Error: {str(e)}"
     finally:
         conn.close()
-
 
 def get_breakdown_page(page=1, size=10, project_id=None, feature_name=None, status=None):
     """
@@ -172,7 +210,7 @@ def update_breakdown_item(item_id: int, data: Dict[str, Any]):
         # 只允许更新部分核心字段
         sql = """
             UPDATE requirement_breakdown 
-            SET module_name=?, feature_name=?, description=?, acceptance_criteria=?, priority=?
+            SET module_name=?, feature_name=?, description=?, acceptance_criteria=?, priority=?, source_content=?, review_status='Pending'
             WHERE id=?
         """
         params = (
@@ -181,6 +219,7 @@ def update_breakdown_item(item_id: int, data: Dict[str, Any]):
             data['description'],
             data['acceptance_criteria'],
             data['priority'],
+            data.get('source_content', ''),  # 🔥 增加参数绑定
             item_id
         )
         cursor.execute(sql, params)

@@ -1,9 +1,9 @@
 <template>
   <div class="view-container">
     <pro-table
-      ref="tableRef"
-      :api="getBreakdownList"
-      :init-param="initParams"
+        ref="tableRef"
+        :api="getBreakdownList"
+        :init-param="initParams"
     >
       <!-- 搜索栏 -->
       <template #search="{ params }">
@@ -14,22 +14,23 @@
         </el-form-item>
         <el-form-item label="状态">
           <el-select v-model="params.status" placeholder="全部状态" clearable style="width: 120px">
-            <el-option label="待审核" value="Pending" />
-            <el-option label="已通过" value="Pass" />
-            <el-option label="已拒绝" value="Reject" />
+            <el-option label="待审核" value="Pending"/>
+            <el-option label="已通过" value="Pass"/>
+            <el-option label="已拒绝" value="Reject"/>
           </el-select>
         </el-form-item>
         <el-form-item label="功能名称">
-          <el-input v-model="params.feature_name" placeholder="模糊搜索" clearable />
+          <el-input v-model="params.feature_name" placeholder="模糊搜索" clearable/>
         </el-form-item>
       </template>
 
       <!-- 表格列 -->
-      <el-table-column prop="id" label="ID" width="60" />
-      <el-table-column prop="module_name" label="模块" width="100" />
-      <el-table-column prop="feature_name" label="功能名称" width="180" show-overflow-tooltip />
-      <el-table-column prop="description" label="功能描述" show-overflow-tooltip />
-      <el-table-column prop="acceptance_criteria" label="验收标准" show-overflow-tooltip />
+      <el-table-column prop="id" label="ID" width="60"/>
+      <el-table-column prop="module_name" label="模块" width="100"/>
+      <el-table-column prop="feature_name" label="功能名称" width="180" show-overflow-tooltip/>
+      <el-table-column prop="description" label="功能描述" show-overflow-tooltip/>
+      <el-table-column prop="source_content" label="原始需求" width="200" show-overflow-tooltip/>
+      <el-table-column prop="acceptance_criteria" label="验收标准" show-overflow-tooltip/>
 
       <el-table-column prop="confidence_score" label="AI评分" width="80" align="center">
         <template #default="{ row }">
@@ -53,7 +54,9 @@
           <!-- 只有非通过状态可以操作 -->
           <div v-if="row.review_status !== 'Pass'">
             <el-button link type="success" @click="handleStatus(row, 'Pass')">通过</el-button>
-            <el-button link type="warning" @click="handleStatus(row, 'Reject')" v-if="row.review_status !== 'Reject'">拒绝</el-button>
+            <el-button link type="warning" @click="handleStatus(row, 'Reject')" v-if="row.review_status !== 'Reject'">
+              拒绝
+            </el-button>
             <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
             <el-button link type="danger" @click="handleStatus(row, 'Discard')">废弃</el-button>
           </div>
@@ -63,17 +66,26 @@
     </pro-table>
 
     <!-- 编辑弹窗 (复用) -->
-    <el-dialog v-model="editVisible" title="编辑并重审" width="600px">
+    <el-dialog v-model="editVisible" title="编辑并重审" width="700px">
       <el-form :model="editForm" label-width="100px">
         <el-form-item label="所属模块">
-          <el-input v-model="editForm.module_name" />
+          <el-input v-model="editForm.module_name"/>
         </el-form-item>
         <el-form-item label="功能名称">
-          <el-input v-model="editForm.feature_name" />
+          <el-input v-model="editForm.feature_name"/>
         </el-form-item>
         <el-form-item label="描述">
           <el-input v-model="editForm.description" type="textarea" :rows="2"/>
         </el-form-item>
+        <el-form-item label="原始需求">
+          <el-input
+              v-model="editForm.source_content"
+              type="textarea"
+              :rows="3"
+              placeholder="该功能点对应的原始需求片段"
+          />
+        </el-form-item>
+
         <el-form-item label="验收标准">
           <el-input v-model="editForm.acceptance_criteria" type="textarea" :rows="4"/>
         </el-form-item>
@@ -87,10 +99,10 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import {ref, reactive, onMounted} from 'vue'
 import ProTable from '../components/ProTable.vue'
-import { getBreakdownList, updateBreakdownItem, updateBreakdownStatus, getProjects } from '../api/api.js'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import {getBreakdownList, updateBreakdownItem, updateBreakdownStatus, getProjects} from '../api/api.js'
+import {ElMessage, ElMessageBox} from 'element-plus'
 
 const tableRef = ref(null)
 const projects = ref([])
@@ -111,13 +123,13 @@ onMounted(async () => {
 
 // 状态操作
 const handleStatus = async (row, status) => {
-  const actionMap = { 'Pass': '通过并同步', 'Reject': '拒绝', 'Discard': '废弃(隐藏)' }
+  const actionMap = {'Pass': '通过并同步', 'Reject': '拒绝', 'Discard': '废弃(隐藏)'}
 
   try {
     await ElMessageBox.confirm(
-      `确定要【${actionMap[status]}】该条目吗？`,
-      '状态变更',
-      { type: status === 'Discard' ? 'error' : 'warning' }
+        `确定要【${actionMap[status]}】该条目吗？`,
+        '状态变更',
+        {type: status === 'Discard' ? 'error' : 'warning'}
     )
 
     await updateBreakdownStatus(row.id, status)
@@ -147,16 +159,19 @@ const submitEdit = async () => {
 
 // 辅助函数
 const getStatusType = (s) => {
-  const map = { 'Pending': 'warning', 'Pass': 'success', 'Reject': 'danger' }
+  const map = {'Pending': 'warning', 'Pass': 'success', 'Reject': 'danger'}
   return map[s] || 'info'
 }
 const getStatusText = (s) => {
-  const map = { 'Pending': '待审核', 'Pass': '已通过', 'Reject': '已拒绝' }
+  const map = {'Pending': '待审核', 'Pass': '已通过', 'Reject': '已拒绝'}
   return map[s] || s
 }
 </script>
 
 <style scoped>
-.view-container { background: #fff; padding: 20px; }
+.view-container {
+  background: #fff;
+  padding: 20px;
+}
 </style>
 

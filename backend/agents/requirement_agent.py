@@ -1,12 +1,3 @@
-#!/usr/bin/env python
-# -*- coding: UTF-8 -*-
-"""
-@Project ：ai_test_case_fast 
-@File    ：requirement_agent.py
-@Author  ：张超
-@Date    ：2025/12/22 09:19
-@Desc    ：
-"""
 # backend/agents/requirement_agent.py
 
 import json
@@ -18,7 +9,7 @@ from autogen_agentchat.agents import AssistantAgent
 
 # 导入项目模块
 from backend.agents.llm_factory import get_gemini_client
-from backend.database.requirement_db import save_analyzed_point,save_breakdown_item
+from backend.database.requirement_db import save_breakdown_item
 from backend.utils.stream_utils import AutoGenStreamProcessor, format_sse
 
 # -------------------------------------------------------------------------
@@ -33,9 +24,9 @@ AGENT_NAMES_MAP = {
     "req_reviewer": "⚖️ 质量评审员"
 }
 
-# 工具显示名称映射
+# 🔥 更新工具映射，对应 save_breakdown_item
 TOOL_NAMES_MAP = {
-    "save_analyzed_point": "📝 功能点拆解入库"
+    "save_breakdown_item": "📝 需求拆解入库"
 }
 
 
@@ -46,18 +37,18 @@ TOOL_NAMES_MAP = {
 def create_requirement_analyst():
     """
     创建需求分析师 Agent
-    拥有功能点入库权限
+    不需要任何工具 (tools=[])，它只负责思考和输出 JSON
     """
     return AssistantAgent(
         name="req_analyst",
         model_client=gemini_client,
-        tools=[save_analyzed_point],  # 绑定需求保存工具
+        # tools=[], # 显式移除工具，防止它越权保存
         system_message="""
             你是一个资深产品经理。
-            
+
             【任务】
             阅读用户的原始需求，将其拆解为独立的、可开发测试的功能点。
-            
+
             【输出要求】
             请输出一个 JSON 列表，包含以下字段：
             - module_name: 所属模块
@@ -67,12 +58,31 @@ def create_requirement_analyst():
             - requirement_type: 新增/优化/Bug
             - priority: P0/P1/P2
             - source_snippet: 对应的原始需求片段
-            
+            - "source_content": 【重要！！！】必须摘录原文。
+                - 请从用户的原始需求中，复制出与该功能点直接相关的【原文句子】。
+                - 如果是推导出来的需求，请填入推导依据。
+                - **绝对不允许为空字符串！**
+
             请确保拆解粒度适中，不要太粗也不要太细。
             请以 JSON 代码块格式输出，例如：
             ```json
-            [ ... ]
+            [
+              {
+                "module_name": "...",
+                "source_content": "原文：用户可以通过微信登录...",
+                ...
+              }
+            ]
             ```
+            【注意事项】
+            输出完 JSON 后，你的任务就结束了。
+            请等待 Reviewer 进行评审和入库操作。
+            
+            【🚨 绝对禁令】
+            **输出完 JSON 后，你的任务就彻底结束了。**
+            **严禁** 回复类似“收到ID”、“任务完成”、“请提供下一个”之类的废话。
+            **严禁** 在 Reviewer 操作完成后再次发言。
+            如果不知道说什么，就保持沉默或输出 TERMINATE。
         """
     )
 
@@ -82,26 +92,24 @@ def create_requirement_reviewer():
     return AssistantAgent(
         name="req_reviewer",
         model_client=gemini_client,
-        tools=[save_breakdown_item],  # 🔥 只有 Reviewer 有权限入库
+        tools=[save_breakdown_item],  # 🔥 只有 Reviewer 拥有入库到拆解表的权限
         system_message="""
-        你是一个严格的需求质量评审员。
+            你是一个严格的需求质量评审员。
 
-        【流程】
-        1. 接收 Analyst 输出的功能点列表。
-        2. 逐条评估每个功能点：
-           - 描述是否清晰？
-           - 验收标准是否可测？
-           - 拆分是否合理？
-        3. 为每个功能点打分 (confidence_score, 0.0-1.0)。
+            【工作流】
+            1. 接收 Analyst 发来的 JSON 数据。
+            2. 检查数据质量（完整性、source_content 是否存在）。
+            3. 调用工具 `save_breakdown_item` 将数据存入【需求拆解表】。
 
-        4. **调用工具** `save_breakdown_item` 将评估通过（或需人工确认）的功能点存入数据库。
-           - 调用 `save_breakdown_item` 保存。
-           - **注意**：你不需要设置 review_status，系统会默认设为 'Pending' 等待人工审批。
-           - 请务必填好 confidence_score 和 review_comments（你的评审意见）。
-
-        5. 全部处理完毕后，回复 TERMINATE。
+            【🚨 终止条件 - 优先级最高】
+            **一旦你看到工具返回了包含 "ID:" 的结果：**
+            **必须立刻、马上回复单词：TERMINATE**
+            
+            不要解释，不要总结，不要说“已入库”，直接说 TERMINATE。
+            阻止 Analyst 继续发言。
         """
     )
+
 
 # -------------------------------------------------------------------------
 # 主业务流程 (Requirement Analysis)
@@ -123,7 +131,7 @@ async def run_requirement_analysis_stream(project_id: int, raw_req: str, instruc
         team = RoundRobinGroupChat(
             [analyst, reviewer],
             termination_condition=TextMentionTermination("TERMINATE"),
-            max_turns=12
+            max_turns=5
         )
 
         task_prompt = f"""
@@ -137,7 +145,7 @@ async def run_requirement_analysis_stream(project_id: int, raw_req: str, instruc
         {instruction}
 
         请 Analyst 先拆解，然后 Reviewer 进行评审并入库。
-        注意：入库时必须带上 project_id={project_id}。
+        注意：调用 save_breakdown_item 时，务必将 project_id={project_id} 和 source_content (原始需求摘要) 填入。
         """
 
         processor = AutoGenStreamProcessor(
