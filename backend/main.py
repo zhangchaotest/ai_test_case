@@ -42,7 +42,7 @@ async def generate_cases_stream(req_id: int, count: int = 5, mode: str = "new"):
     """
     流式生成接口
     """
-    req = db_tools.get_requirement_by_id(req_id)
+    req = requirement_db.get_requirement_by_id(req_id)
     if not req:
         raise HTTPException(status_code=404, detail="未找到对应的需求")
 

@@ -47,7 +47,7 @@ def get_requirements_page(page=1, size=10, feature_name=None, priority=None):
     conn.close()
     return result
 
-def get_by_id(req_id: int):
+def get_requirement_by_id(req_id: int):
     conn = get_conn()
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM functional_points WHERE id = ?", (req_id,))
