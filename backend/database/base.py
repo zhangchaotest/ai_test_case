@@ -43,18 +43,32 @@ def safe_json_loads(json_str):
 
     # 3. 尝试标准 JSON 解析 (最快，最标准)
     try:
-        return json.loads(cleaned)
-    except json.JSONDecodeError:
-        pass  # 解析失败，尝试下一个方案
-
-    # 4. 🔥 尝试 Python 字面量解析 (解决单引号问题)
-    # 很多时候 LLM 会存成 [{'step_id': 1}] 这种单引号格式，json.loads 会报错
-    try:
-        return ast.literal_eval(cleaned)
+        # 尝试解析为 JSON
+        parsed = json.loads(cleaned)
+        if isinstance(parsed, list):
+            return parsed
     except Exception as e:
-        # 5. 如果都失败了，打印出来看看是啥怪东西
+        # 如果都失败了，打印出来看看是啥怪东西
         print(f"❌ [JSON Parse Error] 解析失败，原始数据: {json_str[:100]}... 错误: {e}")
-        return []  # 解析不了就返回空，防止前端报错
+
+    try:
+        # 尝试解析为 Python List (单引号)
+        parsed = ast.literal_eval(cleaned)
+        if isinstance(parsed, list):
+            return parsed
+    except Exception as e:
+        # 如果都失败了，打印出来看看是啥怪东西
+        print(f"❌ [JSON Parse Error] 解析失败，原始数据: {json_str[:100]}... 错误: {e}")
+    print(f"⚠️ [Data Warning] 数据非结构化，已降级显示: {cleaned[:20]}...")
+
+
+    return [
+        {
+            "step_id": 1,
+            "action": cleaned,  # 把整段文本直接放到“操作步骤”里
+            "expected": "（AI生成的原始文本，非标准格式）"
+        }
+    ]
 
 
 def execute_page_query(cursor, base_sql, count_sql, params, page, size):

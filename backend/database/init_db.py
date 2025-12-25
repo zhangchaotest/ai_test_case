@@ -102,6 +102,16 @@ def init_tables():
     except sqlite3.OperationalError:
         pass
 
+
+    try:
+        cursor.execute("ALTER TABLE test_cases ADD COLUMN quality_score REAL")
+        print("   -> 补丁: test_cases 增加 quality_score")
+    except sqlite3.OperationalError: pass
+
+    try:
+        cursor.execute("ALTER TABLE test_cases ADD COLUMN review_comments TEXT")
+        print("   -> 补丁: test_cases 增加 review_comments")
+    except sqlite3.OperationalError: pass
     conn.commit()
     conn.close()
     print("✅ [DB Init] 数据库初始化完成")

@@ -7,9 +7,8 @@
 @Date    ：2025/12/21 12:50
 @Desc    ：
 """
+import re
 from typing import Dict, Any, List
-
-# backend/database/case_db.py
 
 from .base import get_conn, execute_page_query, safe_json_loads
 import json
@@ -51,81 +50,154 @@ def get_cases_page(page=1, size=10, req_id=None, title=None,status=None):
     return result
 
 
+# =============================================================================
+# 1. 私有辅助函数：数据清洗与标准化
+# =============================================================================
+
+def _normalize_steps(steps_raw: Any) -> List[Dict]:
+    """
+    [辅助方法] 标准化测试步骤
+    将各种奇葩格式 (字符串、数字、不规范列表) 统一清洗为标准 List[Dict]
+    """
+    print(f"\n🔍 [Data Clean] 原始 steps 类型: {type(steps_raw)}")
+
+    # 情况 A: 已经是 List -> 直接返回
+    if isinstance(steps_raw, list):
+        return steps_raw
+
+    # 情况 B: 是字符串 -> 尝试解析 JSON 或 清洗文本
+    if isinstance(steps_raw, str):
+        try:
+            # 尝试直接解析 JSON
+            parsed = json.loads(steps_raw)
+            if isinstance(parsed, list):
+                return parsed
+        except:
+            pass
+
+        # 解析失败，进入文本清洗逻辑
+        print(f"⚠️ [Data Fix] 检测到纯文本步骤，执行清洗...")
+        cleaned_text = steps_raw.replace('\\n', '\n')
+        lines = cleaned_text.strip().split('\n')
+
+        fixed_steps = []
+        for line in lines:
+            line = line.strip()
+            if not line: continue
+            # 正则去除行首序号: "1. ", "1、", "(1)"
+            clean_action = re.sub(r'^(\d+[.、\s)]?|\(\d+\))\s*', '', line)
+            if clean_action:
+                fixed_steps.append({
+                    "step_id": len(fixed_steps) + 1,
+                    "action": clean_action,
+                    "expected": "（详见预期结果字段）"
+                })
+
+        # 兜底：如果清洗后为空，把原文本作为一条步骤
+        return fixed_steps if fixed_steps else [{"step_id": 1, "action": steps_raw, "expected": "非标准格式"}]
+
+    # 情况 C: 数字类型 -> 转换为占位符
+    if isinstance(steps_raw, (int, float)):
+        print(f"⚠️ [Data Fix1] 检测到数字类型: {steps_raw}")
+        if steps_raw > 0:
+            return [{"step_id": 1, "action": f"步骤 {steps_raw}", "expected": "AI未生成详细描述"}]
+        return []
+
+    # 情况 D: 其他 -> 返回空列表
+    return []
+
+
+def _normalize_test_data(test_data_raw: Any) -> Dict:
+    """
+    [辅助方法] 标准化测试数据
+    统一转换为 Dict
+    """
+    if isinstance(test_data_raw, dict):
+        return test_data_raw
+
+    if isinstance(test_data_raw, str):
+        try:
+            return json.loads(test_data_raw)
+        except:
+            return {"raw_content": test_data_raw}
+
+    print(f"⚠️ [Data Fix2] 检测到数字类型: {test_data_raw}")
+    return {}
+
+
+# =============================================================================
+# 2. 主业务函数：数据库操作
+# =============================================================================
+
 def save_case(data: Dict[str, Any]) -> str:
     """
-    保存单条用例 (供 Agent 或 业务逻辑调用)
-    :param data: 包含用例信息的字典，必须包含 requirement_id, case_title 等
+    保存单条用例
+    职责：序列化标准对象 -> 执行 SQL 插入
     """
     conn = None
     try:
         conn = get_conn()
         cursor = conn.cursor()
 
-        # 1. 序列化复杂字段 (List/Dict -> JSON String)
-        # ensure_ascii=False 保证中文正常显示，而不是 \uXXXX
+        if 'data' in data and isinstance(data['data'], dict):
+            print("⚠️ [DB Fix] 检测到参数嵌套，正在解包...")
+            data = data['data']
 
-        # 处理 steps: 如果是列表转JSON，如果是空则存空数组
-        steps_raw = data.get('steps', [])
-        if isinstance(steps_raw, list):
-            steps_json = json.dumps(steps_raw, ensure_ascii=False)
-        else:
-            # 如果传进来的已经是字符串（极少情况），直接用
-            steps_json = str(steps_raw)
+        req_id = data.get('requirement_id')
+        if not req_id:
+            print(f"❌ [DB Error] 缺少必填参数 'requirement_id'。当前数据: {data.keys()}")
+            return "-1"  # 或者抛出异常让 Agent 重试
+        # --- 1. 数据预处理 (调用辅助方法) ---
+        # 无论输入多乱，这里出来的都是标准的 Python List 和 Dict
+        final_steps_list = _normalize_steps(data.get('steps', []))
+        final_test_data_dict = _normalize_test_data(data.get('test_data', {}))
 
-        # 处理 test_data: 同理
-        test_data_raw = data.get('test_data', {})
-        if isinstance(test_data_raw, dict):
-            test_data_json = json.dumps(test_data_raw, ensure_ascii=False)
-        else:
-            test_data_json = str(test_data_raw)
+        # --- 2. 序列化 (Python Object -> JSON String) ---
+        # 统一在入库前做一次 dumps，避免双重序列化
+        steps_json_str = json.dumps(final_steps_list, ensure_ascii=False)
+        test_data_json_str = json.dumps(final_test_data_dict, ensure_ascii=False)
 
-        # 2. 准备插入数据的 SQL
+        print(f"💾 [DB Save] 最终存入 Steps: {steps_json_str}")
+        print(f"💾 [DB Save] 最终存入 data: {data}")
+        # --- 3. 准备 SQL 参数 ---
         sql = """
-              INSERT INTO test_cases (requirement_id, \
-                                      case_title, \
-                                      pre_condition, \
-                                      steps, \
-                                      expected_result, \
-                                      priority, \
-                                      case_type, \
-                                      test_data, \
-                                      status) \
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) \
+              INSERT INTO test_cases (requirement_id, case_title, pre_condition, steps, expected_result, \
+                                      priority, case_type, test_data, status, \
+                                      quality_score, review_comments) \
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
               """
 
-        # 3. 提取参数 (使用 .get() 提供默认值，防止 KeyError)
         params = (
-            data['requirement_id'],  # 必填，如果缺了直接抛错
-            data.get('case_title', '未命名用例'),  # 必填，缺了给默认值
+            data['requirement_id'],
+            data.get('case_title', '未命名用例'),
             data.get('pre_condition', '无'),
-            steps_json,  # 存 JSON 字符串
+            steps_json_str,  # 存 JSON 字符串
             data.get('expected_result', '无'),
             data.get('priority', 'P1'),
             data.get('case_type', 'Functional'),
-            test_data_json,  # 存 JSON 字符串
-            'Draft'  # 默认为草稿状态
+            test_data_json_str,  # 存 JSON 字符串
+            'Draft',
+            data.get('quality_score', 0.8),
+            data.get('review_comments', '')
         )
 
-        # 4. 执行插入
+        # --- 4. 执行事务 ---
         cursor.execute(sql, params)
         conn.commit()
-
-        # 获取新生成的 ID
         new_id = cursor.lastrowid
-        print(f"✅ [DB] 用例保存成功 ID: {new_id}")
-        return str(new_id)
+
+        print(f"✅ [DB Success] 用例保存成功 ID: {new_id}")
+        return f"ID: {new_id}"
 
     except Exception as e:
         print(f"❌ [DB Error] 保存用例失败: {str(e)}")
-        # 如果是必须抛出异常让上层处理，可以 raise e
-        # 这里返回 -1 表示失败
+        # 打印一下出错时的原始数据，方便排查
+        # print(f"   -> Problem Data: {data}")
         return "-1"
 
     finally:
-        # 5. 确保连接关闭
         if conn:
             conn.close()
-
 
 def get_existing_case_titles(req_id: int):
     """获取指定需求下所有已存在的用例标题"""

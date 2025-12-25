@@ -82,6 +82,32 @@
         </template>
       </el-table-column>
 
+      <el-table-column prop="quality_score" label="质量评分" width="120" align="center" sortable>
+        <template #default="{ row }">
+          <!-- 悬浮显示评语 -->
+          <el-tooltip
+            :content="row.review_comments || '无评审意见'"
+            placement="top"
+            :disabled="!row.review_comments"
+          >
+            <div style="display: flex; align-items: center; justify-content: center;">
+              <!-- 使用环形进度条或条形进度条 -->
+              <el-progress
+                type="dashboard"
+                :percentage="Math.round((row.quality_score || 0) * 100)"
+                :width="40"
+                :stroke-width="4"
+                :color="getScoreColor"
+              >
+                <template #default="{ percentage }">
+                  <span style="font-size: 12px; font-weight: bold">{{ percentage }}</span>
+                </template>
+              </el-progress>
+            </div>
+          </el-tooltip>
+        </template>
+      </el-table-column>
+
       <el-table-column prop="priority" label="优先级" width="90">
         <template #default="{ row }">
           <el-tag :type="getPriorityTag(row.priority)" effect="dark">{{ row.priority }}</el-tag>
@@ -202,6 +228,13 @@ const getStatusBadgeType = (status) => {
 const getStatusText = (status) => {
   const map = {'Active': '有效', 'Deprecated': '废弃', 'Draft': '草稿'}
   return map[status] || status
+}
+// 动态颜色：高分绿色，低分红色
+const getScoreColor = (percentage) => {
+  if (percentage >= 90) return '#67c23a'
+  if (percentage >= 80) return '#409eff'
+  if (percentage >= 60) return '#e6a23c'
+  return '#f56c6c'
 }
 </script>
 

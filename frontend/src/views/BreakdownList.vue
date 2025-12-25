@@ -52,13 +52,15 @@
         </template>
       </el-table-column>
 
-      <el-table-column prop="confidence_score" label="AI评分" width="80" align="center">
-        <template #default="{ row }">
-          <span :style="{ color: row.confidence_score < 0.6 ? 'red' : 'green' }">
-            {{ row.confidence_score }}
-          </span>
-        </template>
-      </el-table-column>
+<el-table-column prop="confidence_score" label="AI评分" width="100" align="center">
+  <template #default="{ row }">
+    <el-tooltip :content="row.review_comments || '无评审意见'" placement="top">
+      <el-tag :type="getScoreColor(row.confidence_score)" effect="dark">
+        {{ row.confidence_score }}
+      </el-tag>
+    </el-tooltip>
+  </template>
+</el-table-column>
 
       <el-table-column prop="review_status" label="状态" width="100" align="center">
         <template #default="{ row }">
@@ -269,6 +271,13 @@ const formatTextToList = (content) => {
     .split(/\r?\n/)
     .map(line => line.trim())
     .filter(line => line.length > 0)
+}
+
+const getScoreColor = (score) => {
+  if (score >= 0.9) return 'success'  // 🟢 优秀
+  if (score >= 0.7) return 'primary'  // 🔵 良好
+  if (score >= 0.6) return 'warning'  // 🟠及格
+  return 'danger'                     // 🔴 差
 }
 </script>
 
