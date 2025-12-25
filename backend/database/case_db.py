@@ -199,6 +199,95 @@ def save_case(data: Dict[str, Any]) -> str:
         if conn:
             conn.close()
 
+
+def get_all_cases_for_export(req_id=None, status=None, title=None):
+    conn = get_conn()
+    cursor = conn.cursor()
+
+    sql = """
+          SELECT fp.module_name, \
+                 tc.case_title, \
+                 tc.priority, \
+                 tc.case_type, \
+                 tc.pre_condition, \
+                 tc.steps, \
+                 tc.expected_result, \
+                 tc.status
+          FROM test_cases tc
+                   LEFT JOIN functional_points fp ON tc.requirement_id = fp.id
+          WHERE 1 = 1 \
+          """
+
+    params = []
+    if req_id:
+        sql += " AND tc.requirement_id = ?"
+        params.append(req_id)
+    if title:
+        sql += " AND tc.case_title LIKE ?"
+        params.append(f"%{title}%")
+    if status:
+        sql += " AND tc.status = ?"
+        params.append(status)
+
+    sql += " ORDER BY tc.id DESC"
+
+    cursor.execute(sql, tuple(params))
+    rows = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+
+    # --- 🔥 数据清洗与格式化 ---
+    formatted_rows = []
+    for row in rows:
+        # 1. 解析步骤 JSON
+        steps_data = safe_json_loads(row['steps']) or []
+
+        excel_steps_list = []
+        excel_expects_list = []
+        md_steps = []  # Markdown 专用格式列表
+
+        if isinstance(steps_data, list):
+            for step in steps_data:
+                idx = step.get('step_id', '')
+                # 去除换行，保持整洁
+                act = str(step.get('action', '')).replace('\n', ' ')
+                exp = str(step.get('expected', '')).replace('\n', ' ')
+
+                # Excel 逻辑保持不变...
+                excel_steps_list.append(f"{idx}. {act}")
+                if exp and exp != "无":
+                    excel_expects_list.append(f"{idx}. {exp}")
+
+                # 🔥 Markdown 核心修改：拼成 "1. 动作 (预期: 结果)"
+                # 这种格式在 XMind 里显示为一行，非常直观
+                md_line = f"{idx}. {act}"
+                if exp and exp != "无":
+                    md_line += f" (预期: {exp})"
+                md_steps.append(md_line)
+
+        else:
+            # 兼容脏数据
+            excel_steps_list.append(str(steps_data))
+            md_steps.append(str(steps_data))
+
+        # ... (中间处理 module_name, pre_condition 的逻辑不变) ...
+        row['module_name'] = row['module_name'] or '公共模块'
+        row['pre_condition'] = row['pre_condition'] or '无'
+
+        # ... (预期结果填充逻辑不变) ...
+        db_expect = row['expected_result']
+        if (not db_expect or db_expect == "无") and excel_expects_list:
+            row['expected_result'] = "\n".join(excel_expects_list)
+        else:
+            row['expected_result'] = db_expect or "无"
+
+        # 赋值
+        row['excel_steps'] = "\n".join(excel_steps_list)
+        row['md_steps'] = md_steps  # list[str]
+
+        formatted_rows.append(row)
+
+    return formatted_rows
+
 def get_existing_case_titles(req_id: int):
     """获取指定需求下所有已存在的用例标题"""
     conn = get_conn()

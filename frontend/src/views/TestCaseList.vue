@@ -28,24 +28,22 @@
 
       <!-- ================== 2. 工具栏插槽 (批量按钮) ================== -->
       <template #toolbar>
-        <el-button
-            type="success"
-            :icon="Check"
-            plain
-            :disabled="selectedIds.length === 0"
-            @click="handleBatchReview('Active')"
-        >
-          批量通过
-        </el-button>
-        <el-button
-            type="danger"
-            :icon="Close"
-            plain
-            :disabled="selectedIds.length === 0"
-            @click="handleBatchReview('Deprecated')"
-        >
-          批量废弃
-        </el-button>
+        <el-button type="success" :icon="Check" plain :disabled="selectedIds.length === 0" @click="handleBatchReview('Active')">批量通过</el-button>
+        <el-button type="danger" :icon="Close" plain :disabled="selectedIds.length === 0" @click="handleBatchReview('Deprecated')">批量废弃</el-button>
+               <!-- 🔥 新增：导出按钮组 -->
+        <el-dropdown style="margin-left: 10px" @command="handleExport">
+          <el-button type="primary" :icon="Download" plain>
+            导出用例 <el-icon class="el-icon--right"><arrow-down /></el-icon>
+          </el-button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item command="excel">导出 Excel (.xlsx)</el-dropdown-item>
+              <el-dropdown-item command="csv">导出 CSV (.csv)</el-dropdown-item>
+              <el-dropdown-item command="markdown">导出 Markdown (推荐XMind导入)</el-dropdown-item>
+              <el-dropdown-item command="xmind">导出 XMind (.xmind)</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
       </template>
 
       <!-- ================== 3. 表格列定义 (默认插槽) ================== -->
@@ -86,18 +84,18 @@
         <template #default="{ row }">
           <!-- 悬浮显示评语 -->
           <el-tooltip
-            :content="row.review_comments || '无评审意见'"
-            placement="top"
-            :disabled="!row.review_comments"
+              :content="row.review_comments || '无评审意见'"
+              placement="top"
+              :disabled="!row.review_comments"
           >
             <div style="display: flex; align-items: center; justify-content: center;">
               <!-- 使用环形进度条或条形进度条 -->
               <el-progress
-                type="dashboard"
-                :percentage="Math.round((row.quality_score || 0) * 100)"
-                :width="40"
-                :stroke-width="4"
-                :color="getScoreColor"
+                  type="dashboard"
+                  :percentage="Math.round((row.quality_score || 0) * 100)"
+                  :width="40"
+                  :stroke-width="4"
+                  :color="getScoreColor"
               >
                 <template #default="{ percentage }">
                   <span style="font-size: 12px; font-weight: bold">{{ percentage }}</span>
@@ -134,10 +132,10 @@
 <script setup>
 import {reactive, ref} from 'vue'
 import {useRoute, useRouter} from 'vue-router'
-import {Check, Close} from '@element-plus/icons-vue'
+import {Check, Close,Download,ArrowDown} from '@element-plus/icons-vue'
 import {ElMessage, ElMessageBox} from 'element-plus'
 import ProTable from '../components/ProTable.vue'
-import {getAllTestCases, batchUpdateCaseStatus} from '../api/api.js' // 确保这里引入了批量接口
+import {getAllTestCases, batchUpdateCaseStatus,exportTestCases} from '../api/api.js' // 确保这里引入了批量接口
 
 const route = useRoute()
 const router = useRouter()
@@ -235,6 +233,38 @@ const getScoreColor = (percentage) => {
   if (percentage >= 80) return '#409eff'
   if (percentage >= 60) return '#e6a23c'
   return '#f56c6c'
+}
+
+// 处理导出
+const handleExport = async (format) => {
+  try {
+    ElMessage.info(`正在导出 ${format} 文件，请稍候...`)
+
+    // 组装参数 (复用搜索条件)
+    const params = {
+      format: format,
+      req_id: initSearchParams.req_id || undefined, // 使用当前页面的搜索条件
+      status: initSearchParams.status || undefined
+    }
+
+    const res = await exportTestCases(params)
+
+    // --- 通用下载逻辑 ---
+    const blob = new Blob([res.data])
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    // 根据格式定后缀
+    const extMap = { excel: 'xlsx', csv: 'csv', xmind: 'xmind',markdown: 'md' }
+    link.download = `测试用例导出_${new Date().getTime()}.${extMap[format]}`
+    link.click()
+    window.URL.revokeObjectURL(url)
+
+    ElMessage.success('导出成功')
+  } catch (e) {
+    console.error(e)
+    ElMessage.error('导出失败')
+  }
 }
 </script>
 

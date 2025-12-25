@@ -25,3 +25,9 @@ export const updateBreakdownItem = (id, data) => api.put(`/requirement_breakdown
 // 批量更新功能点状态
 export const batchUpdateBreakdownStatus = (data) => api.put('/requirement_breakdown/batch_status', data);
 export const updateBreakdownStatus =(id,status) =>api.put(`/requirement_breakdown/${id}/status`,{status})
+
+export const exportTestCases =(params) =>api.get('/cases/export',{
+    params,
+    responseType: 'blob' // 🔥 必须加这个，否则下载的文件会乱码
+  })
+

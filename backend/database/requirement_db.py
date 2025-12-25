@@ -7,6 +7,7 @@
 @Date    ：2025/12/21 12:50
 @Desc    ：
 """
+import json
 from typing import Dict, Any
 
 from .base import get_conn, execute_page_query
@@ -88,38 +89,12 @@ def save_breakdown_item(data: Dict[str, Any]) -> str:
     conn = get_conn()
     cursor = conn.cursor()
 
-    # 解包逻辑保持不变
+    # 1. 智能解包参数 (防止嵌套)
     actual_data = data
     if 'data' in data and isinstance(data['data'], dict):
         actual_data = data['data']
 
-    # --- 🔥 新增：防重检查 ---
-    # 逻辑：同一个项目下，如果“功能名称”和“原始需求片段”完全一致，则视为重复，不再插入
-    # 注意：这里判断标准可以根据你的业务调整，比如只判断 feature_name + project_id
-    project_id = actual_data.get('project_id')
-    feature_name = actual_data.get('feature_name') or actual_data.get('title')
-    source_content = actual_data.get('source_content') or actual_data.get('source_snippet')
-
-    check_sql = """
-                SELECT id \
-                FROM requirement_breakdown
-                WHERE project_id = ? \
-                  AND feature_name = ? \
-                  AND source_content = ? \
-                """
-    cursor.execute(check_sql, (project_id, feature_name, source_content))
-    existing_row = cursor.fetchone()
-
-    if existing_row:
-        print(f"⚠️ [DB Skip] 检测到重复数据 (ID: {existing_row[0]}), 跳过写入。")
-        conn.close()
-        # 返回已存在的ID，假装成功，让流程继续结束
-        return f"ID: {existing_row[0]} (已存在，跳过写入)"
-    # -----------------------
-
-    # 打印调试，确认解包是否成功
     print(f"🐛 [DEBUG SAVE] 正在保存: {actual_data.get('feature_name', '未命名')}")
-    # -------------------------------------------------------
 
     try:
         sql = """
@@ -129,12 +104,21 @@ def save_breakdown_item(data: Dict[str, Any]) -> str:
               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) \
               """
 
-        # 处理 feature_name (容错)
+        # --- 🔥 核心修复：处理验收标准 (List -> JSON String) ---
+        ac_raw = actual_data.get('acceptance_criteria', '')
+        if isinstance(ac_raw, list):
+            # 如果是列表，转成 JSON 字符串存入
+            ac_str = json.dumps(ac_raw, ensure_ascii=False)
+        else:
+            # 如果是字符串或其他，转成字符串
+            ac_str = str(ac_raw)
+        # ----------------------------------------------------
+
+        # 处理其他字段容错
         feat_name = actual_data.get('feature_name') or actual_data.get('title') or '未命名'
         if feat_name == '未命名' and actual_data.get('description'):
             feat_name = actual_data['description'][:15]
 
-            # 处理 source_content (容错)
         src_content = actual_data.get('source_content') or actual_data.get('source_snippet') or ''
 
         params = (
@@ -142,13 +126,11 @@ def save_breakdown_item(data: Dict[str, Any]) -> str:
             actual_data.get('module_name', '通用'),
             feat_name,
             actual_data.get('description', ''),
-            actual_data.get('acceptance_criteria', ''),
+            ac_str,  # 🔥 使用处理后的字符串，而不是原始 List
             actual_data.get('requirement_type', '功能需求'),
             actual_data.get('priority', 'P1'),
-            actual_data.get('confidence_score', 0.5),
-
-            'Pending',  # 强制待审核
-
+            actual_data.get('confidence_score', 0.8),  # 默认 0.8 防止为空
+            'Pending',
             actual_data.get('review_comments', ''),
             src_content
         )

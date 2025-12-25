@@ -5,8 +5,8 @@ from typing import List
 
 from pydantic import BaseModel
 
-from database import db_tools
-# from agents import agent_manager
+from fastapi.responses import StreamingResponse, FileResponse
+from backend.utils import export_utils
 
 from backend.database import init_db, project_db, requirement_db, case_db
 from backend.agents import run_case_generation_stream, run_requirement_analysis_stream
@@ -62,6 +62,58 @@ async def generate_cases_stream(req_id: int, count: int = 5, mode: str = "new"):
 def list_cases(page: int = 1, size: int = 10, req_id: int = None, status: str = None):
     return case_db.get_cases_page(page, size, req_id=req_id, status=status)
 
+
+@app.get("/cases/export")
+def export_cases(
+        format: str,  # excel, csv, xmind
+        req_id: int = None,
+        status: str = None
+):
+    # 1. 获取数据
+    data = case_db.get_all_cases_for_export(req_id=req_id, status=status)
+
+    if not data:
+        raise HTTPException(400, "当前筛选条件下无数据可导出")
+
+    # 2. 根据格式处理
+    filename = "test_cases"
+
+    if format == 'excel':
+        stream = export_utils.generate_excel(data)
+        return StreamingResponse(
+            stream,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f"attachment; filename={filename}.xlsx"}
+        )
+
+    elif format == 'csv':
+        stream = export_utils.generate_csv(data)
+        return StreamingResponse(
+            stream,
+            media_type="text/csv",
+            headers={"Content-Disposition": f"attachment; filename={filename}.csv"}
+        )
+
+    elif format == 'xmind':
+        file_path = export_utils.generate_xmind(data)
+        # FileResponse 会自动处理文件流读取，并在发送后可配置 background task 删除，这里简化处理
+        return FileResponse(
+            file_path,
+            filename=f"{filename}.xmind",
+            media_type='application/octet-stream'
+        )
+
+    # 🔥 推荐使用 Markdown 导入 XMind，结构最稳
+    elif format == 'markdown' or format == 'xmind':
+        stream = export_utils.generate_markdown(data)
+        return StreamingResponse(
+            stream,
+            media_type="text/markdown",
+            headers={"Content-Disposition": f"attachment; filename={filename}.md"}
+        )
+
+    else:
+        raise HTTPException(400, "不支持的导出格式")
 
 class BatchStatusRequest(BaseModel):
     ids: List[int]
