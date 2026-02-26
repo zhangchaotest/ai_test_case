@@ -103,6 +103,52 @@
             </el-tooltip>
           </div>
 
+          <div class="config-item" style="margin-left: 20px;">
+            <span class="label">测试领域：</span>
+            <el-select
+                v-model="domain"
+                size="small"
+                style="width: 120px"
+                :disabled="isGenerating"
+            >
+              <el-option
+                  v-for="option in domainOptions"
+                  :key="option.value"
+                  :label="option.label"
+                  :value="option.value"
+              />
+            </el-select>
+            <el-tooltip content="选择测试领域，影响生成的测试用例类型" placement="top">
+              <el-icon style="margin-left: 5px; cursor: pointer; color: #909399">
+                <QuestionFilled/>
+              </el-icon>
+            </el-tooltip>
+          </div>
+
+          <div class="config-item" style="margin-left: 20px;">
+            <span class="label">提示词：</span>
+            <el-select
+                v-model="selectedPromptId"
+                size="small"
+                style="width: 150px"
+                :disabled="isGenerating"
+                placeholder="默认提示词"
+            >
+              <el-option label="默认提示词" value=""/>
+              <el-option
+                  v-for="prompt in prompts"
+                  :key="prompt.id"
+                  :label="prompt.name"
+                  :value="prompt.id"
+              />
+            </el-select>
+            <el-tooltip content="选择自定义提示词，或使用默认提示词" placement="top">
+              <el-icon style="margin-left: 5px; cursor: pointer; color: #909399">
+                <QuestionFilled/>
+              </el-icon>
+            </el-tooltip>
+          </div>
+
           <div class="config-item" style="margin-left: auto;">
             <el-button type="primary" size="small" @click="startGenerate" :loading="isGenerating">
               {{ isGenerating ? '生成中...' : '开始生成' }}
@@ -139,11 +185,89 @@
         </el-button>
       </template>
     </el-drawer>
+
+    <!-- 生成用例配置弹窗 -->
+    <el-dialog
+        v-model="configDialogVisible"
+        :title="`生成测试用例 - ${currentRow.feature_name || '功能点'}`"
+        width="500px"
+    >
+      <div class="config-panel">
+        <div class="config-item">
+          <span class="label">目标数量：</span>
+          <el-input-number v-model="targetCount" :min="1" :max="20" size="small"/>
+        </div>
+
+        <div class="config-item">
+          <span class="label">模式：</span>
+          <el-switch
+              v-model="isAppendMode"
+              active-text="增量补充"
+              inactive-text="覆盖/新建"
+              inline-prompt
+              style="--el-switch-on-color: #13ce66; --el-switch-off-color: #ff4949"
+          />
+          <el-tooltip content="开启后，AI 将读取已有用例，避免重复生成" placement="top">
+            <el-icon style="margin-left: 5px; cursor: pointer; color: #909399">
+              <QuestionFilled/>
+            </el-icon>
+          </el-tooltip>
+        </div>
+
+        <div class="config-item">
+          <span class="label">测试领域：</span>
+          <el-select
+              v-model="domain"
+              size="small"
+              style="width: 120px"
+          >
+            <el-option
+                v-for="option in domainOptions"
+                :key="option.value"
+                :label="option.label"
+                :value="option.value"
+            />
+          </el-select>
+          <el-tooltip content="选择测试领域，影响生成的测试用例类型" placement="top">
+            <el-icon style="margin-left: 5px; cursor: pointer; color: #909399">
+              <QuestionFilled/>
+            </el-icon>
+          </el-tooltip>
+        </div>
+
+        <div class="config-item">
+          <span class="label">提示词：</span>
+          <el-select
+              v-model="selectedPromptId"
+              size="small"
+              style="width: 150px"
+              placeholder="默认提示词"
+          >
+            <el-option label="默认提示词" value=""/>
+            <el-option
+                v-for="prompt in prompts"
+                :key="prompt.id"
+                :label="prompt.name"
+                :value="prompt.id"
+            />
+          </el-select>
+          <el-tooltip content="选择自定义提示词，或使用默认提示词" placement="top">
+            <el-icon style="margin-left: 5px; cursor: pointer; color: #909399">
+              <QuestionFilled/>
+            </el-icon>
+          </el-tooltip>
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="configDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="startGenerate">开始生成</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
-import {ref} from 'vue'
+import {ref, watch} from 'vue'
 import {useRouter} from 'vue-router'
 import {Download, MagicStick, Loading} from '@element-plus/icons-vue'
 import {getRequirements,BASE_URL} from '../api/api.js'
@@ -164,6 +288,38 @@ const consoleRef = ref(null)
 
 // 用例生成模式new新增，append追加
 const isAppendMode = ref(true)
+// 测试领域选择
+const domain = ref('base')
+const domainOptions = [
+  { value: 'base', label: '基础测试' },
+  { value: 'web', label: 'Web应用测试' },
+  { value: 'api', label: 'API测试' }
+]
+
+// 提示词选择
+const prompts = ref([])
+const selectedPromptId = ref(null)
+
+// 加载提示词列表
+const loadPrompts = async () => {
+  try {
+    const response = await fetch(`${BASE_URL}/prompts?domain=${domain.value}&type=generator`)
+    if (!response.ok) throw new Error('获取提示词列表失败')
+    
+    const data = await response.json()
+    prompts.value = data
+  } catch (error) {
+    console.error('加载提示词失败:', error)
+  }
+}
+
+// 监听领域变化，重新加载提示词
+domain.value = 'base'
+domain.value = 'base' // 触发响应式更新
+watch(domain, () => {
+  selectedPromptId.value = null
+  loadPrompts()
+}, { immediate: true })
 
 // 导出
 const handleExport = () => {
@@ -196,10 +352,10 @@ const addLog = (msg, type = 'info') => {
 
 // === 新增/修改的状态变量 ===
 const currentRow = ref({})      // 暂存当前选中的行数据
+const configDialogVisible = ref(false) // 生成用例配置弹窗
 
-// === 1. 打开抽屉（只做初始化，不写业务逻辑） ===
+// === 1. 打开生成用例配置弹窗 ===
 const openGenerateDrawer = (row) => {
-  drawerVisible.value = true
   currentRow.value = row // 保存当前行，方便 startGenerate 读取
   logs.value = []
   currentReqId.value = row.id
@@ -209,14 +365,14 @@ const openGenerateDrawer = (row) => {
     // 如果已经有用例，默认开启增量模式，且数量设少一点
     isAppendMode.value = true
     targetCount.value = 3
-    addLog(`ℹ️ 检测到该需求已有 ${row.case_count} 条用例，已自动切换为【增量补充模式】`, 'warning')
   } else {
     // 如果是新需求，默认全量模式
     isAppendMode.value = false
     targetCount.value = 5
   }
-  // 自动开始生成 (如果不想要自动开始，把这行删掉，让用户点按钮)
-  startGenerate()
+  
+  // 打开配置弹窗
+  configDialogVisible.value = true
 }
 
 // === 2. 执行生成（核心逻辑封装在这里） ===
@@ -224,6 +380,17 @@ const startGenerate = async () => {
   // 从 currentRow 取值，防止变量丢失
   const row = currentRow.value
   if (!row || !row.id) return
+
+  // 关闭配置弹窗
+  configDialogVisible.value = false
+  
+  // 打开抽屉
+  drawerVisible.value = true
+  
+  // 添加智能判断日志
+  if (row.case_count > 0) {
+    addLog(`ℹ️ 检测到该需求已有 ${row.case_count} 条用例，已自动切换为【增量补充模式】`, 'warning')
+  }
 
   isGenerating.value = true
 
@@ -236,13 +403,19 @@ const startGenerate = async () => {
   }
 
   const modeText = isAppendMode.value ? '增量补充 (Append)' : '全量覆盖 (New)'
-  addLog(`⚙️ 配置: 目标数量 ${targetCount.value} 条 | 模式: ${modeText}`)
+  const domainText = domainOptions.find(option => option.value === domain.value)?.label || domain.value
+  const promptText = selectedPromptId.value 
+    ? prompts.value.find(p => p.id === selectedPromptId.value)?.name || '自定义提示词'
+    : '默认提示词'
+  addLog(`⚙️ 配置: 目标数量 ${targetCount.value} 条 | 模式: ${modeText} | 测试领域: ${domainText} | 提示词: ${promptText}`)
 
   try {
-    // 🔥 拼接 URL：带上 count 和 mode
-    // mode 参数需要后端支持 (根据之前的后端代码改造)
+    // 🔥 拼接 URL：带上 count、mode、domain 和 prompt_id
     const modeParam = isAppendMode.value ? 'append' : 'new'
-    const url = `${BASE_URL}/requirements/${row.id}/generate_stream?count=${targetCount.value}&mode=${modeParam}`
+    let url = `${BASE_URL}/requirements/${row.id}/generate_stream?count=${targetCount.value}&mode=${modeParam}&domain=${domain.value}`
+    if (selectedPromptId.value) {
+      url += `&prompt_id=${selectedPromptId.value}`
+    }
 
     const response = await fetch(url)
 
@@ -492,5 +665,33 @@ const parseSSEMessage = (messageString) => {
   font-size: 14px;
   color: #606266;
   margin-right: 8px;
+}
+
+/* 配置弹窗样式 */
+:deep(.el-dialog .config-panel) {
+  padding: 20px;
+  display: block;
+  background: none;
+  border-radius: 0;
+  margin-bottom: 0;
+}
+
+:deep(.el-dialog .config-item) {
+  display: flex;
+  align-items: center;
+  margin-bottom: 15px;
+  margin-right: 0;
+}
+
+:deep(.el-dialog .config-item .label) {
+  width: 100px;
+  font-weight: 500;
+  color: #303133;
+  margin-right: 10px;
+}
+
+:deep(.el-dialog .config-item .el-select),
+:deep(.el-dialog .config-item .el-input-number) {
+  margin-right: 10px;
 }
 </style>

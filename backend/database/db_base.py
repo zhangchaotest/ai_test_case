@@ -93,3 +93,25 @@ class DatabaseBase:
         placeholders = ','.join(['?'] * len(ids))
         sql = f"SELECT * FROM {table} WHERE id IN ({placeholders})"
         return self.execute_query(sql, tuple(ids))
+    
+    def batch_update(self, table: str, ids: List[int], field: str, value: Any) -> bool:
+        """
+        批量更新记录
+        
+        :param table: 表名
+        :param ids: ID列表
+        :param field: 字段名
+        :param value: 新值
+        :return: 是否成功
+        """
+        if not ids:
+            return False
+        placeholders = ','.join(['?'] * len(ids))
+        sql = f"UPDATE {table} SET {field} = ? WHERE id IN ({placeholders})"
+        params = (value,) + tuple(ids)
+        try:
+            rows_affected = self.execute_update(sql, params)
+            return rows_affected > 0
+        except Exception as e:
+            print(f"Error in batch_update: {e}")
+            return False

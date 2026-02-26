@@ -30,7 +30,7 @@ def list_requirements(page: int = 1, size: int = 10, feature: str = None):
 
 
 @router.get("/{req_id}/generate_stream")
-async def generate_cases_stream(req_id: int, count: int = 5, mode: str = "new"):
+async def generate_cases_stream(req_id: int, count: int = 5, mode: str = "new", domain: str = "base", prompt_id: int = None):
     """单条生成测试用例（流式响应）"""
     try:
         # 尝试获取需求详情
@@ -44,7 +44,9 @@ async def generate_cases_stream(req_id: int, count: int = 5, mode: str = "new"):
                 req['feature_name'],
                 req['description'],
                 target_count=count,
-                mode=mode
+                mode=mode,
+                domain=domain,
+                prompt_id=prompt_id
             ),
             media_type="text/event-stream"
         )

@@ -31,7 +31,7 @@ class CaseService:
         pass
     
     def generate_cases(self, req_id: int, feature_name: str, desc: str, 
-                          target_count: int = 5, mode: str = "new"):
+                          target_count: int = 5, mode: str = "new", domain: str = "base", prompt_id: int = None):
         """
         生成测试用例（修复版）
         使用线程池和队列处理异步操作，避免 StreamingResponse 兼容性问题
@@ -41,6 +41,7 @@ class CaseService:
         :param desc: 功能描述
         :param target_count: 目标生成数量
         :param mode: 生成模式 ('new' 或 'append')
+        :param domain: 领域类型 ('base', 'web', 'api' 等)
         :return: 流式响应生成器
         """
         # 创建队列用于线程间通信
@@ -52,7 +53,7 @@ class CaseService:
                 async def process_async():
                     """异步处理函数"""
                     async for sse in run_case_generation_stream(
-                        req_id, feature_name, desc, target_count, mode
+                        req_id, feature_name, desc, target_count, mode, domain, prompt_id
                     ):
                         result_queue.put(sse)
                     # 标记处理完成

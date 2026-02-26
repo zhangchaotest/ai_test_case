@@ -13,3 +13,15 @@
 # 例如: from backend.agents import run_case_generation_stream
 from .case_agent import run_case_generation_stream, run_batch_functional_generation_stream
 from .requirement_agent import run_requirement_analysis_stream
+from .prompt_manager import PromptManager
+from .test_dimension import TestDimensionManager
+from .context_manager import ContextManager
+
+__all__ = [
+    'run_case_generation_stream',
+    'run_batch_functional_generation_stream',
+    'run_requirement_analysis_stream',
+    'PromptManager',
+    'TestDimensionManager',
+    'ContextManager'
+]

@@ -20,7 +20,13 @@ from autogen_agentchat.agents import AssistantAgent
 # 导入项目模块
 from backend.agents.llm_factory import get_gemini_client
 from backend.database.case_db import save_case, get_existing_case_titles
+from backend.database.prompt_db import get_prompt_by_id
 from backend.utils.stream_utils import AutoGenStreamProcessor, format_sse
+
+# 导入新增模块
+from backend.agents.prompt_manager import PromptManager
+from backend.agents.test_dimension import TestDimensionManager
+from backend.agents.context_manager import ContextManager
 
 # 🔥 1. 确保头部导入了这两个 DB 方法
 from backend.database.requirement_db import get_batch_functional_points
@@ -44,84 +50,68 @@ TOOL_NAMES_MAP = {
     "save_case": "💾 数据库入库"
 }
 
+# 初始化新增管理器
+prompt_manager = PromptManager()
+dimension_manager = TestDimensionManager()
+context_manager = ContextManager()
+
 
 # -------------------------------------------------------------------------
 # Agent 定义区域
 # -------------------------------------------------------------------------
 
-def create_test_generator(target_count: int = 5):
+def create_test_generator(target_count: int = 5, domain='base', prompt_id: int = None):
     """
     创建用例生成 Agent (Generator)
     :param target_count: 目标生成数量
+    :param domain: 领域类型
+    :param prompt_id: 提示词ID
     """
     print(f"🔍 [DEBUG] 正在创建 Generator Agent, 目标数量: {target_count}")
+
+    # 获取提示词
+    if prompt_id:
+        prompt = get_prompt_by_id(prompt_id)
+        if prompt:
+            system_message = prompt['content'].replace('{target_count}', str(target_count))
+            print(f"📝 使用自定义提示词: {prompt['name']}")
+        else:
+            system_message = prompt_manager.get_prompt('generator', domain, target_count=target_count)
+            print("⚠️  提示词ID不存在，使用默认提示词")
+    else:
+        system_message = prompt_manager.get_prompt('generator', domain, target_count=target_count)
 
     return AssistantAgent(
         name="test_generator",
         model_client=gemini_client,
-        system_message=f"""
-        你是一个专业的测试工程师。
-
-        【任务目标】
-        针对给定的功能点，设计约 **{target_count}** 个测试用例。
-
-        【生成策略】
-        1. 优先覆盖：P0级核心功能 > 常见异常场景 > 关键边界值。
-        2. **不要** 生成过于生僻或重复的用例（如网络断开、服务器物理损坏等）。
-        3. 请一次性将这些用例的 JSON 结构输出完毕，不要分批次输出。
-
-        【重要格式要求】
-        输出的 JSON 列表中，每个用例必须包含以下字段：
-        - "case_title": 用例标题 (必须有，且简洁明了)
-        - "steps" 字段必须是一个 **列表 (List)**，包含多个对象。
-            1、绝对不要填 steps 设为数字（如 -1, 0, 1 ）等
-            2、严禁填纯文本字符串。
-            3、正确示例：steps:[{{"step_id": 1, "action": "...", "expected": "..."}}]
-        - "priority": 优先级 (P0-P2)
-        - "case_type": 类型 (功能测试用例/反向测试用例/边界值测试用例)
-
-        注意：steps 字段里的 JSON 括号必须完整。
-        不要输出 markdown 代码块，直接输出结构化信息。
-        """
+        system_message=system_message
     )
 
 
-def create_test_reviewer():
+def create_test_reviewer(domain='base', prompt_id: int = None):
     """
     创建用例评审 Agent (Reviewer)
     拥有入库工具权限
+    :param domain: 领域类型
+    :param prompt_id: 提示词ID
     """
+    # 获取提示词
+    if prompt_id:
+        prompt = get_prompt_by_id(prompt_id)
+        if prompt:
+            system_message = prompt['content']
+            print(f"📝 使用自定义评审提示词: {prompt['name']}")
+        else:
+            system_message = prompt_manager.get_prompt('reviewer', domain)
+            print("⚠️  提示词ID不存在，使用默认评审提示词")
+    else:
+        system_message = prompt_manager.get_prompt('reviewer', domain)
+
     return AssistantAgent(
         name="test_reviewer",
         model_client=gemini_client,
         tools=[save_case],  # 绑定用例保存工具
-        system_message="""
-        你是测试组长。
-        
-        【任务】
-        审查 Generator 生成的测试用例是否符合需求，**量化评分**并入库。
-        
-        【评分标准 (满分 1.0)】
-        初始分 1.0，发现以下问题请扣分：
-        1. **步骤不清 (-0.2)**: 步骤描述模糊，无法执行。
-        2. **预期缺失 (-0.2)**: 预期结果与步骤不对应。
-        3. **数据缺失 (-0.1)**: 需要具体测试数据（如金额、账号）但未提供。
-        4. **逻辑错误 (-0.3)**: 用例逻辑与常规认知相悖。
-        5. **格式错误 (-0.1)**: 步骤不是列表结构。
-        6. **逻辑错误 (-0.3)**: 用例逻辑与需求要求内容相悖。
-
-      【执行要求】
-        1. 计算 `quality_score` (如 0.95)。
-        2. 编写 `review_comments` (简短评价，如"步骤清晰，覆盖全面" 或 "缺少边界值数据")。
-        3. 请检查 `steps`的值是否满足要求，不满足则直接拒绝 正确示例：steps:[{{"step_id": 1, "action": "...", "expected": "..."}}]
-        4. 对于 Generator 生成的每个测试用例：
-           - 为其添加 `requirement_id` 字段，值必须与任务中的功能ID一致
-           - 为其添加 `quality_score` 字段
-           - 为其添加 `review_comments` 字段
-           - 单独调用 `save_case` 工具进行保存，确保每个用例都包含以上字段
-        5. 严禁将所有用例包装在一个包含'case_list'键的对象中传递给save_case工具。
-        6. 保存后回复 TERMINATE。
-        """
+        system_message=system_message
     )
 
 
@@ -157,7 +147,7 @@ def parse_generator_output(content: str):
 # -------------------------------------------------------------------------
 
 async def run_case_generation_stream(req_id: int, feature_name: str, desc: str, target_count: int = 5,
-                                     mode: str = "new"):
+                                     mode: str = "new", domain='base', prompt_id: int = None):
     """
     用例生成流式任务入口
 
@@ -166,6 +156,7 @@ async def run_case_generation_stream(req_id: int, feature_name: str, desc: str, 
     :param desc: 需求描述
     :param target_count: 目标生成数量
     :param mode: 'new' (全新生成) 或 'append' (追加生成)
+    :param domain: 领域类型 ('base', 'web', 'api' 等)
     """
     print(f"🚀 [Case Stream] 开始处理 ID: {req_id}, Mode: {mode}")
 
@@ -212,9 +203,34 @@ async def run_case_generation_stream(req_id: int, feature_name: str, desc: str, 
         dynamic_turns = max(6, int(target_count / 3) + 4)
         print(f"⚙️ [DEBUG] Team 组装完成，最大轮次: {dynamic_turns}")
 
-        # --- 4. 组装 AutoGen Team ---
-        generator = create_test_generator(target_count)
-        reviewer = create_test_reviewer()
+        # --- 4. 生成测试维度矩阵 --- 
+        req = {'feature_name': feature_name, 'description': desc}
+        test_matrix = dimension_manager.generate_test_matrix(req)
+        
+        # --- 5. 获取上下文信息 --- 
+        context = context_manager.get_context(req_id, req)
+        
+        # --- 6. 构建测试维度和上下文信息 --- 
+        dimension_info = "\n\n【测试维度】\n"
+        for dim in test_matrix:
+            dimension_info += f"- {dim['name']}: {dim['description']} (优先级: {dim['priority']})\n"
+        
+        context_info = ""
+        if context['existing_cases']:
+            context_info += "\n\n【已存在用例】\n"
+            for title in context['existing_cases'][:5]:  # 只显示前5个
+                context_info += f"- {title}\n"
+            if len(context['existing_cases']) > 5:
+                context_info += f"... 等 {len(context['existing_cases'])} 个用例\n"
+        
+        if context['coverage_gaps']:
+            context_info += "\n【覆盖盲区】\n"
+            for gap in context['coverage_gaps']:
+                context_info += f"- {gap}\n"
+
+        # --- 7. 组装 AutoGen Team ---
+        generator = create_test_generator(target_count, domain, prompt_id)
+        reviewer = create_test_reviewer(domain, prompt_id)
         termination = TextMentionTermination("TERMINATE")
 
         team = RoundRobinGroupChat(
@@ -233,6 +249,8 @@ async def run_case_generation_stream(req_id: int, feature_name: str, desc: str, 
         目标生成数量：**{target_count} 条左右**。
 
         {existing_context}
+        {dimension_info}
+        {context_info}
 
         【生成策略】
         {focus_instruction}
@@ -334,7 +352,8 @@ async def run_batch_functional_generation_stream(ids: list[int], target_count_pe
                     feature_name=feature_name,
                     desc=desc,
                     target_count=target_count_per_item,
-                    mode="new"
+                    mode="new",
+                    domain='base'
             ):
                 # 过滤掉单条任务的结束信号
                 if "event: finish" not in sse_event:

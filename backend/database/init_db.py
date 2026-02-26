@@ -87,6 +87,23 @@ def init_tables():
     """)
 
     # --------------------------------------------------------
+    # 5. 提示词表 (Prompts)
+    # 说明：用于存储和管理测试用例生成的提示词
+    # --------------------------------------------------------
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS prompts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,   -- 提示词ID (主键)
+            name TEXT NOT NULL UNIQUE,              -- 提示词名称 (唯一)
+            content TEXT NOT NULL,                  -- 提示词内容
+            domain TEXT NOT NULL,                   -- 领域 (base/web/api)
+            type TEXT NOT NULL,                     -- 类型 (generator/reviewer)
+            description TEXT,                       -- 描述
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, -- 创建时间
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP  -- 更新时间
+        )
+    """)
+
+    # --------------------------------------------------------
     # 5. 自动迁移逻辑 (Migration)
     # 防止旧数据库缺少字段导致报错
     # --------------------------------------------------------
@@ -128,6 +145,54 @@ def seed_data():
         cursor.execute("INSERT INTO projects (project_name, description) VALUES (?, ?)",
                        ("默认项目", "系统自动创建的默认演示项目"))
         print("🌱 [DB Seed] 已插入默认项目")
+
+    # 检查是否需要插入默认提示词
+    cursor.execute("SELECT count(*) FROM prompts")
+    if cursor.fetchone()[0] == 0:
+        # 插入默认提示词
+        default_prompts = [
+            {
+                "name": "基础生成器",
+                "content": "你是一个专业的测试工程师。针对给定的功能点，设计约 **{target_count}** 个测试用例。优先覆盖：P0级核心功能 > 常见异常场景 > 关键边界值。不要生成过于生僻或重复的用例。",
+                "domain": "base",
+                "type": "generator",
+                "description": "基础测试用例生成提示词"
+            },
+            {
+                "name": "基础评审器",
+                "content": "你是测试组长。审查 Generator 生成的测试用例是否符合需求，量化评分并入库。初始分 1.0，发现问题请扣分。",
+                "domain": "base",
+                "type": "reviewer",
+                "description": "基础测试用例评审提示词"
+            },
+            {
+                "name": "Web生成器",
+                "content": "你是一个专业的Web测试工程师。针对Web应用的功能点，设计约 **{target_count}** 个测试用例。需要考虑浏览器兼容性、响应式布局、表单验证等Web特有的测试点。",
+                "domain": "web",
+                "type": "generator",
+                "description": "Web应用测试用例生成提示词"
+            },
+            {
+                "name": "API生成器",
+                "content": "你是一个专业的API测试工程师。针对API接口，设计约 **{target_count}** 个测试用例。需要考虑不同HTTP方法、请求参数组合、错误处理、认证授权等API特有的测试点。",
+                "domain": "api",
+                "type": "generator",
+                "description": "API测试用例生成提示词"
+            }
+        ]
+        
+        for prompt in default_prompts:
+            cursor.execute("""
+                INSERT INTO prompts (name, content, domain, type, description)
+                VALUES (?, ?, ?, ?, ?)
+            """, (
+                prompt["name"],
+                prompt["content"],
+                prompt["domain"],
+                prompt["type"],
+                prompt["description"]
+            ))
+        print("🌱 [DB Seed] 已插入默认提示词")
 
     conn.commit()
     conn.close()

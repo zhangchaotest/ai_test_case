@@ -44,6 +44,12 @@ const routes = [
                 component: () => import('../views/TestExecution.vue'),
                 meta: {title: '用例执行', icon: 'VideoPlay'} // 找一个播放按钮图标
             },
+            {
+                path: 'prompts',
+                name: 'PromptManagement',
+                component: () => import('../views/PromptManagement.vue'),
+                meta: {title: '提示词管理', icon: 'Document'} // 对应 Element Plus 图标名
+            },
 
             // 隐藏的详情页
             {
