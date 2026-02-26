@@ -7,11 +7,22 @@
 @Date    ：2025/12/25 15:06
 @Desc    ：
 """
-import pandas as pd
-import xmind
-import os
-import tempfile
 from io import BytesIO
+
+# 尝试导入依赖库
+try:
+    import pandas as pd
+    PANDAS_AVAILABLE = True
+except ImportError:
+    PANDAS_AVAILABLE = False
+
+try:
+    import xmind
+    import os
+    import tempfile
+    XMIND_AVAILABLE = True
+except ImportError:
+    XMIND_AVAILABLE = False
 
 
 def generate_excel(data: list) -> BytesIO:
@@ -20,6 +31,10 @@ def generate_excel(data: list) -> BytesIO:
     格式：模块 | 标题 | 优先级 | 前置条件 | 操作步骤 | 预期结果
     """
     if not data:
+        return BytesIO()
+
+    if not PANDAS_AVAILABLE:
+        # 如果pandas不可用，返回空的BytesIO
         return BytesIO()
 
     # 1. 准备数据，只取需要的字段
@@ -129,6 +144,13 @@ def generate_markdown(data: list) -> BytesIO:
 
 def generate_csv(data: list) -> BytesIO:
     """生成 CSV 文件流"""
+    if not data:
+        return BytesIO()
+
+    if not PANDAS_AVAILABLE:
+        # 如果pandas不可用，返回空的BytesIO
+        return BytesIO()
+
     df = pd.DataFrame(data)
 
     rename_map = {
@@ -156,6 +178,13 @@ def generate_xmind(data: list) -> str:
     生成 XMind 文件
     注意：xmind 库需要生成物理文件，所以我们返回临时文件路径
     """
+    if not data:
+        return ""
+
+    if not XMIND_AVAILABLE:
+        # 如果xmind不可用，返回空字符串
+        return ""
+
     # 1. 创建临时文件路径
     temp_dir = tempfile.gettempdir()
     file_path = os.path.join(temp_dir, "test_cases.xmind")

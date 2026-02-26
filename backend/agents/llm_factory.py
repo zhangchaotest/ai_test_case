@@ -15,6 +15,7 @@ from dotenv import load_dotenv
 # 加载环境变量
 load_dotenv()
 
+
 def get_gemini_client(model_name: str = "gemini-3-pro-preview", temperature: float = 0.7):
     """
     工厂函数：创建一个配置好连接 Google Gemini 的 ModelClient。
@@ -55,6 +56,6 @@ def get_gemini_client(model_name: str = "gemini-3-pro-preview", temperature: flo
         print(f"❌ [LLM Factory] 初始化失败: {e}")
         raise e
 
-if __name__ == "__main__":
 
+if __name__ == "__main__":
     pass

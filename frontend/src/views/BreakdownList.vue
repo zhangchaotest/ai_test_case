@@ -140,7 +140,7 @@ defineOptions({
 // 加载项目用于筛选
 onMounted(async () => {
   const res = await getProjects()
-  projects.value = res.data
+  projects.value = res.data.items || []
 })
 
 // 状态操作

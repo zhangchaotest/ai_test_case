@@ -1,17 +1,44 @@
-from fastapi import FastAPI, HTTPException, BackgroundTasks
-from fastapi.responses import StreamingResponse  # 🔥 必须引入这个，进行流式输出
+# backend/main.py
+
+from contextlib import asynccontextmanager
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from typing import List
-
 from pydantic import BaseModel
+import uvicorn
+import traceback
 
-from fastapi.responses import StreamingResponse, FileResponse
-from backend.utils import export_utils
+# 引入 API 路由
+from backend.api import api_router
+# 引入数据库初始化
+from backend.database import init_db
 
-from backend.database import init_db, project_db, requirement_db, case_db
-from backend.agents import run_case_generation_stream, run_requirement_analysis_stream
 
-app = FastAPI(title="AI Test Platform")
+# 自定义错误响应模型
+class ErrorResponse(BaseModel):
+    status: str
+    message: str
+    detail: str = None
+
+
+# =========================================================
+# 1. 定义生命周期 (替代 on_event startup)
+# =========================================================
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    print("🚀 系统启动中：正在初始化数据库...")
+    try:
+        init_db.init_tables()
+        init_db.seed_data()
+        print("✅ 数据库初始化完成")
+    except Exception as e:
+        print(f"❌ 数据库初始化失败: {e}")
+        raise e
+    yield
+    print("🛑 系统关闭")
+
+
+app = FastAPI(title="AI Test Platform", lifespan=lifespan)
 
 # 允许前端跨域
 app.add_middleware(
@@ -22,197 +49,29 @@ app.add_middleware(
 )
 
 
-# 初始化数据库
-@app.on_event("startup")
-def startup():
-    init_db.init_tables()
-    init_db.seed_data()
-
-
-@app.get("/requirements")
-def list_requirements(page: int = 1, size: int = 10, feature: str = None):
-    """
-    分页获取需求列表
-    """
-    return requirement_db.get_requirements_page(page, size, feature_name=feature)
-
-
-@app.get("/requirements/{req_id}/generate_stream")
-async def generate_cases_stream(req_id: int, count: int = 5, mode: str = "new"):
-    """
-    流式生成接口
-    """
-    req = requirement_db.get_requirement_by_id(req_id)
-    if not req:
-        raise HTTPException(status_code=404, detail="未找到对应的需求")
-
-    # 返回流式响应，media_type 必须是 text/event-stream
-    return StreamingResponse(
-        run_case_generation_stream(
-            req_id, req['feature_name'],
-            req['description'],
-            target_count=count,
-            mode=mode
-        ),
-        media_type="text/event-stream"
+# 全局异常处理
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """全局异常处理"""
+    # 记录异常信息
+    print(f"❌ 全局异常: {exc}")
+    print(traceback.format_exc())
+    
+    # 返回统一的错误响应
+    return JSONResponse(
+        status_code=500,
+        content={
+            "status": "error",
+            "message": "服务器内部错误",
+            "detail": str(exc) if isinstance(exc, HTTPException) else "系统异常，请联系管理员"
+        }
     )
 
 
-@app.get("/cases")  # 🔥 修改返回模型
-def list_cases(page: int = 1, size: int = 10, req_id: int = None, status: str = None):
-    return case_db.get_cases_page(page, size, req_id=req_id, status=status)
-
-
-@app.get("/cases/export")
-def export_cases(
-        format: str,  # excel, csv, xmind
-        req_id: int = None,
-        status: str = None
-):
-    # 1. 获取数据
-    data = case_db.get_all_cases_for_export(req_id=req_id, status=status)
-
-    if not data:
-        raise HTTPException(400, "当前筛选条件下无数据可导出")
-
-    # 2. 根据格式处理
-    filename = "test_cases"
-
-    if format == 'excel':
-        stream = export_utils.generate_excel(data)
-        return StreamingResponse(
-            stream,
-            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={"Content-Disposition": f"attachment; filename={filename}.xlsx"}
-        )
-
-    elif format == 'csv':
-        stream = export_utils.generate_csv(data)
-        return StreamingResponse(
-            stream,
-            media_type="text/csv",
-            headers={"Content-Disposition": f"attachment; filename={filename}.csv"}
-        )
-
-    elif format == 'xmind':
-        file_path = export_utils.generate_xmind(data)
-        # FileResponse 会自动处理文件流读取，并在发送后可配置 background task 删除，这里简化处理
-        return FileResponse(
-            file_path,
-            filename=f"{filename}.xmind",
-            media_type='application/octet-stream'
-        )
-
-    # 🔥 推荐使用 Markdown 导入 XMind，结构最稳
-    elif format == 'markdown' or format == 'xmind':
-        stream = export_utils.generate_markdown(data)
-        return StreamingResponse(
-            stream,
-            media_type="text/markdown",
-            headers={"Content-Disposition": f"attachment; filename={filename}.md"}
-        )
-
-    else:
-        raise HTTPException(400, "不支持的导出格式")
-
-class BatchStatusRequest(BaseModel):
-    ids: List[int]
-    status: str
-
-
-# 2. 新增批量评审接口
-@app.put("/cases/batch_status")
-def update_case_status(req: BatchStatusRequest):
-    """批量更新用例状态 (评审通过/废弃)"""
-    success = case_db.batch_update_status(req.ids, req.status)
-    if success:
-        return {"status": "success", "message": "操作成功"}
-    raise HTTPException(status_code=500, detail="更新数据库失败")
-
-
-# 1. 项目相关接口
-class ProjectCreate(BaseModel):
-    name: str
-    desc: str = ""
-
-
-@app.get("/projects")
-def get_projects():
-    return project_db.get_all_projects()
-
-
-@app.post("/projects")
-def create_project_api(p: ProjectCreate):
-    pid = project_db.create_project(p.name, p.desc)
-    if pid == -1: raise HTTPException(400, "项目名已存在")
-    return {"id": pid, "name": p.name}
-
-
-# 2. 需求分析流接口
-class AnalysisRequest(BaseModel):
-    project_id: int
-    raw_req: str
-    instruction: str = ""
-
-
-# 注意：GET 不适合传大文本，这里改用 POST 配合 StreamingResponse 稍微麻烦点，
-# 或者继续用 GET 但把参数拼在 URL (受长度限制)。
-# 最佳实践：使用 POST 且流式返回。但 EventSource 标准只支持 GET。
-# 变通方案：前端用 fetch + ReadableStream (我们之前已经在用了)，所以这里可以用 POST。
-
-@app.post("/analyze/stream")
-async def analyze_requirement_stream(body: AnalysisRequest):
-    return StreamingResponse(
-        run_requirement_analysis_stream(
-            body.project_id, body.raw_req, body.instruction
-        ),
-        media_type="text/event-stream"
-    )
-
-
-# 查询需求拆解列表 (ProTable用)
-@app.get("/requirement_breakdown")
-def list_breakdowns(
-    page: int = 1,
-    size: int = 10,
-    project_id: int = None,
-    feature: str = None,
-    status: str = None  # 🔥 新增状态筛选
-):
-    return requirement_db.get_breakdown_page(page, size, project_id, feature, status)
-
-class StatusUpdate(BaseModel):
-    status: str # Pass, Reject, Discard
-
-
-@app.put("/requirement_breakdown/{item_id}/status")
-def change_breakdown_status(item_id: int, body: StatusUpdate):
-    if body.status not in ['Pass', 'Reject', 'Discard', 'Pending']:
-        raise HTTPException(400, "无效的状态")
-
-    success = requirement_db.update_breakdown_status(item_id, body.status)
-    if success:
-        return {"status": "success", "message": f"状态已更新为 {body.status}"}
-    raise HTTPException(500, "状态更新失败")
-
-# 编辑功能点
-class BreakdownUpdate(BaseModel):
-    module_name: str
-    feature_name: str
-    description: str
-    acceptance_criteria: str
-    priority: str
-
-
-@app.put("/requirement_breakdown/{item_id}")
-def update_breakdown(item_id: int, body: BreakdownUpdate):
-    success = requirement_db.update_breakdown_item(item_id, body.dict())
-    if success:
-        return {"status": "success"}
-    raise HTTPException(500, "更新失败")
+# 注册 API 路由
+app.include_router(api_router)
 
 
 if __name__ == "__main__":
-    import uvicorn
-
+    # 建议使用 0.0.0.0 以便局域网访问，端口统一
     uvicorn.run(app, host="0.0.0.0", port=8888)

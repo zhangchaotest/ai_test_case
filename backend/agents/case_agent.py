@@ -22,6 +22,9 @@ from backend.agents.llm_factory import get_gemini_client
 from backend.database.case_db import save_case, get_existing_case_titles
 from backend.utils.stream_utils import AutoGenStreamProcessor, format_sse
 
+# 🔥 1. 确保头部导入了这两个 DB 方法
+from backend.database.requirement_db import get_batch_functional_points
+from backend.database.requirement_db import get_batch_breakdown_items  # 如果之前有针对拆解表的批量逻辑
 # -------------------------------------------------------------------------
 # 配置区域
 # -------------------------------------------------------------------------
@@ -274,3 +277,61 @@ async def run_case_generation_stream(req_id: int, feature_name: str, desc: str, 
 
         # 发送空的结束信号，避免前端无限等待
         yield format_sse("finish", "{}")
+
+
+
+
+# -------------------------------------------------------------------------
+async def run_batch_functional_generation_stream(ids: list[int], target_count_per_item: int = 5):
+    """
+    批量生成测试用例 (数据源：functional_points 表)
+    """
+    print(f"🚀 [Batch Functional Stream] IDs={ids}")
+
+    # 1. 获取数据
+    items = get_batch_functional_points(ids)
+    total = len(items)
+
+    yield format_sse("message", json.dumps({
+        "type": "log", "source": "系统通知",
+        "content": f"📦 收到批量任务，共 {total} 个正式需求点待处理..."
+    }, ensure_ascii=False))
+
+    success_count = 0
+
+    # 2. 循环处理
+    for index, item in enumerate(items):
+        current_num = index + 1
+        req_id = item['id']
+        feature_name = item['feature_name']
+        # 兼容不同字段名
+        desc = item.get('description', '') or item.get('feature_name', '')
+
+        yield format_sse("message", json.dumps({
+            "type": "log", "source": "系统调度",
+            "content": f"\n🔄 [进度 {current_num}/{total}] 正在处理：{feature_name}..."
+        }, ensure_ascii=False))
+
+        try:
+            # 复用单条生成逻辑
+            async for sse_event in run_case_generation_stream(
+                    req_id=req_id,
+                    feature_name=feature_name,
+                    desc=desc,
+                    target_count=target_count_per_item,
+                    mode="new"
+            ):
+                # 过滤掉单条任务的结束信号
+                if "event: finish" not in sse_event:
+                    yield sse_event
+
+            success_count += 1
+
+        except Exception as e:
+            traceback.print_exc()
+            yield format_sse("message", json.dumps({
+                "type": "log", "source": "系统错误", "content": f"ID {req_id} 处理失败: {str(e)}"
+            }, ensure_ascii=False))
+
+    # 3. 结束
+    yield format_sse("finish", json.dumps({"batch_total": total, "success": success_count}, ensure_ascii=False))

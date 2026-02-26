@@ -11,7 +11,7 @@ import ast
 import sqlite3
 import json
 
-DB_PATH = "requirements.db"
+DB_PATH = "backend/database/test_cases.db"
 
 
 def get_conn():

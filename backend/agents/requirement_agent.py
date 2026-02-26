@@ -141,46 +141,98 @@ def create_requirement_reviewer():
 # -------------------------------------------------------------------------
 
 # --- 3. 流式任务入口 ---
-async def run_requirement_analysis_stream(project_id: int, raw_req: str, instruction: str = ""):
+def run_requirement_analysis_stream(project_id: int, raw_req: str, instruction: str = ""):
+    """
+    需求分析流式处理（修复版）
+    使用线程池处理异步操作，避免 StreamingResponse 兼容性问题
+    """
     print(f"🚀 [Req Analysis] Project={project_id}")
 
+    # 立即返回初始化消息
     yield format_sse("message", json.dumps({
         "type": "log", "source": "系统", "content": "正在初始化双智能体分析流程 (Analyst -> Reviewer)..."
     }, ensure_ascii=False))
 
     try:
-        analyst = create_requirement_analyst()
-        reviewer = create_requirement_reviewer()
+        import threading
+        import queue
+        
+        # 创建队列用于线程间通信
+        result_queue = queue.Queue()
+        
+        def worker():
+            """在后台线程中运行异步处理"""
+            try:
+                import asyncio
+                
+                async def process_async():
+                    """异步处理函数"""
+                    analyst = create_requirement_analyst()
+                    reviewer = create_requirement_reviewer()
 
-        # 两人协作，轮流发言
-        team = RoundRobinGroupChat(
-            [analyst, reviewer],
-            termination_condition=TextMentionTermination("TERMINATE"),
-            max_turns=5
-        )
+                    # 两人协作，轮流发言
+                    team = RoundRobinGroupChat(
+                        [analyst, reviewer],
+                        termination_condition=TextMentionTermination("TERMINATE"),
+                        max_turns=5
+                    )
 
-        task_prompt = f"""
-        【需求分析任务】
-        项目ID: {project_id}
+                    task_prompt = f"""
+                    【需求分析任务】
+                    项目ID: {project_id}
 
-        【原始需求内容】
-        {raw_req}
+                    【原始需求内容】
+                    {raw_req}
 
-        【补充指令】
-        {instruction}
+                    【补充指令】
+                    {instruction}
 
-        请 Analyst 先拆解，然后 Reviewer 进行评审并入库。
-        注意：调用 save_breakdown_item 时，务必将 project_id={project_id} 和 source_content (原始需求摘要) 填入。
-        """
+                    请 Analyst 先拆解，然后 Reviewer 进行评审并入库。
+                    注意：调用 save_breakdown_item 时，务必将 project_id={project_id} 和 source_content (原始需求摘要) 填入。
+                    """
 
-        processor = AutoGenStreamProcessor(
-            agent_names=AGENT_NAMES_MAP,
-            tool_names=TOOL_NAMES_MAP
-        )
+                    processor = AutoGenStreamProcessor(
+                        agent_names=AGENT_NAMES_MAP,
+                        tool_names=TOOL_NAMES_MAP
+                    )
 
-        raw_stream = team.run_stream(task=task_prompt)
-        async for sse in processor.process_stream(raw_stream):
-            yield sse
+                    raw_stream = team.run_stream(task=task_prompt)
+                    async for sse in processor.process_stream(raw_stream):
+                        result_queue.put(sse)
+                    
+                    # 标记处理完成
+                    result_queue.put(None)
+                
+                # 运行异步处理
+                asyncio.run(process_async())
+            except Exception as e:
+                traceback.print_exc()
+                error_msg = format_sse("message",
+                                     json.dumps({"type": "log", "source": "系统错误", "content": str(e)}, ensure_ascii=False))
+                result_queue.put(error_msg)
+                result_queue.put(None)
+        
+        # 启动后台线程
+        thread = threading.Thread(target=worker)
+        thread.daemon = True
+        thread.start()
+        
+        # 从队列中获取结果并yield
+        while True:
+            try:
+                # 非阻塞获取，避免阻塞主线程
+                import time
+                time.sleep(0.1)  # 避免过于频繁的轮询
+                
+                if not result_queue.empty():
+                    sse = result_queue.get()
+                    if sse is None:
+                        # 处理完成
+                        break
+                    yield sse
+            except Exception as e:
+                print(f"Error in queue processing: {e}")
+                break
 
     except Exception as e:
         traceback.print_exc()

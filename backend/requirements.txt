@@ -1,0 +1,22 @@
+# Web 框架
+fastapi>=0.100.0
+uvicorn>=0.23.0
+python-dotenv>=1.0.0
+
+# 微软 AutoGen 智能体框架 (v0.4+ 新架构)
+autogen-agentchat>=0.2
+autogen-core>=0.2
+# Google Gemini 支持 (必须带括号)
+autogen-ext[google]
+autogen-ext[openai]
+
+# 数据处理与导出
+pandas>=2.0.0
+openpyxl>=3.1.0  # 用于导出 Excel (.xlsx)
+xmind>=1.2.0     # 用于导出 XMind (.xmind)
+
+# 其他工具
+pydantic>=2.0.0
+httpx>=0.24.0
+
+# Set-ExecutionPolicy RemoteSigned -Scope CurrentUser

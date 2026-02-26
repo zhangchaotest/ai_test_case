@@ -153,7 +153,7 @@ onMounted(async () => {
 const loadProjects = async () => {
   try {
     const res = await getProjects()
-    projects.value = res.data
+    projects.value = res.data.items || []
   } catch (e) {
     ElMessage.error('获取项目列表失败')
   }
