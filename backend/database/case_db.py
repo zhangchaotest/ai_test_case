@@ -132,6 +132,16 @@ class CaseDB(DatabaseBase):
                 print("⚠️ [DB Fix] 检测到参数嵌套，正在解包...")
                 data = data['data']
 
+            # 处理包含case_list的情况
+            if 'case_list' in data:
+                print("⚠️ [DB Fix] 检测到case_list格式，正在处理...")
+                # 从任务提示中获取requirement_id
+                # 这里假设req_id已经在上下文中传递
+                # 由于无法直接获取，我们需要从数据中提取或使用默认值
+                # 暂时返回错误，需要修改Agent输出格式
+                print(f"❌ [DB Error] 检测到case_list格式，但缺少requirement_id。当前数据: {data.keys()}")
+                return "-1"
+
             req_id = data.get('requirement_id')
             if not req_id:
                 print(f"❌ [DB Error] 缺少必填参数 'requirement_id'。当前数据: {data.keys()}")

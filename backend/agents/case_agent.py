@@ -114,8 +114,13 @@ def create_test_reviewer():
         1. 计算 `quality_score` (如 0.95)。
         2. 编写 `review_comments` (简短评价，如"步骤清晰，覆盖全面" 或 "缺少边界值数据")。
         3. 请检查 `steps`的值是否满足要求，不满足则直接拒绝 正确示例：steps:[{{"step_id": 1, "action": "...", "expected": "..."}}]
-        4. 调用 `save_case` 工具入库时，**务必包含这两个字段**。
-        5. 保存后回复 TERMINATE。
+        4. 对于 Generator 生成的每个测试用例：
+           - 为其添加 `requirement_id` 字段，值必须与任务中的功能ID一致
+           - 为其添加 `quality_score` 字段
+           - 为其添加 `review_comments` 字段
+           - 单独调用 `save_case` 工具进行保存，确保每个用例都包含以上字段
+        5. 严禁将所有用例包装在一个包含'case_list'键的对象中传递给save_case工具。
+        6. 保存后回复 TERMINATE。
         """
     )
 
@@ -233,15 +238,25 @@ async def run_case_generation_stream(req_id: int, feature_name: str, desc: str, 
         {focus_instruction}
 
         【执行要求】
-        1. 保存时 requirement_id 必须为 {req_id}。
-        2. 如果数量较多，你可以分多次（多轮对话）生成，每次生成 5 条，直到凑够数量。
-
+        1. Generator 生成的用例必须是 JSON 格式的列表，每个用例包含：
+           - case_title: 用例标题
+           - steps: 测试步骤列表
+           - priority: 优先级
+           - case_type: 用例类型
+        2. Reviewer 审查后，需要为每个用例添加：
+           - requirement_id: 功能ID，必须为 {req_id}
+           - quality_score: 质量评分
+           - review_comments: 评审意见
+        3. Reviewer 调用 save_case 工具时，必须为每个用例单独调用，确保每个用例都包含 requirement_id 字段。
+        4. 严禁将所有用例包装在一个包含'case_list'键的对象中传递给save_case工具。
+        5. 如果数量较多，你可以分多次（多轮对话）生成，每次生成 5 条，直到凑够数量。
 
         【重要执行指令】
         Generator，请立即开始工作！
         请先回复一句：“收到，正在为 [ID:{req_id}] 生成测试用例...”，然后紧接着输出 JSON 数据。
         **不要保持沉默！**
         """
+
 
         # --- 5. 初始化通用流式处理器 ---
         processor = AutoGenStreamProcessor(
