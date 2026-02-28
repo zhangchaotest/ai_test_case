@@ -22,11 +22,13 @@ from backend.agents.llm_factory import get_gemini_client
 from backend.database.case_db import save_case, get_existing_case_titles
 from backend.database.prompt_db import get_prompt_by_id
 from backend.utils.stream_utils import AutoGenStreamProcessor, format_sse
+from backend.config import DIFY_CONFIG, FEATURE_CONFIG
 
 # 导入新增模块
 from backend.agents.prompt_manager import PromptManager
 from backend.agents.test_dimension import TestDimensionManager
 from backend.agents.context_manager import ContextManager
+from backend.agents.knowledge_manager import get_knowledge_manager
 
 # 🔥 1. 确保头部导入了这两个 DB 方法
 from backend.database.requirement_db import get_batch_functional_points
@@ -54,6 +56,7 @@ TOOL_NAMES_MAP = {
 prompt_manager = PromptManager()
 dimension_manager = TestDimensionManager()
 context_manager = ContextManager()
+knowledge_manager = get_knowledge_manager()
 
 
 # -------------------------------------------------------------------------
@@ -71,15 +74,27 @@ def create_test_generator(target_count: int = 5, domain='base', prompt_id: int =
 
     # 获取提示词
     if prompt_id:
+        print(f"📝 [提示词] 开始使用自定义提示词，ID: {prompt_id}")
         prompt = get_prompt_by_id(prompt_id)
         if prompt:
-            system_message = prompt['content'].replace('{target_count}', str(target_count))
-            print(f"📝 使用自定义提示词: {prompt['name']}")
+            print(f"📝 [提示词] 成功获取提示词: {prompt['name']} (领域: {prompt['domain']}, 类型: {prompt['type']})")
+            # 确保提示词包含目标数量信息
+            system_message = prompt['content']
+            # 检查是否包含目标数量占位符
+            if '{target_count}' not in system_message:
+                # 如果不包含，在提示词开头添加
+                system_message = f"设计约 **{{target_count}}** 个测试用例。\n" + system_message
+                print(f"📝 [提示词] 提示词中不包含目标数量信息，已自动添加")
+            # 替换目标数量
+            system_message = system_message.replace('{target_count}', str(target_count))
+            print(f"📝 [提示词] 使用自定义提示词: {prompt['name']}")
+            print(f"📝 [提示词] 提示词内容: {system_message[:100]}..." if len(system_message) > 100 else f"📝 [提示词] 提示词内容: {system_message}")
         else:
             system_message = prompt_manager.get_prompt('generator', domain, target_count=target_count)
-            print("⚠️  提示词ID不存在，使用默认提示词")
+            print(f"⚠️  [提示词] 提示词ID {prompt_id} 不存在，使用默认提示词")
     else:
         system_message = prompt_manager.get_prompt('generator', domain, target_count=target_count)
+        print(f"📝 [提示词] 未指定提示词ID，使用默认提示词 (领域: {domain})")
 
     return AssistantAgent(
         name="test_generator",
@@ -97,15 +112,19 @@ def create_test_reviewer(domain='base', prompt_id: int = None):
     """
     # 获取提示词
     if prompt_id:
+        print(f"📝 [提示词] 开始使用自定义评审提示词，ID: {prompt_id}")
         prompt = get_prompt_by_id(prompt_id)
         if prompt:
+            print(f"📝 [提示词] 成功获取评审提示词: {prompt['name']} (领域: {prompt['domain']}, 类型: {prompt['type']})")
             system_message = prompt['content']
-            print(f"📝 使用自定义评审提示词: {prompt['name']}")
+            print(f"📝 [提示词] 使用自定义评审提示词: {prompt['name']}")
+            print(f"📝 [提示词] 评审提示词内容: {system_message[:100]}..." if len(system_message) > 100 else f"📝 [提示词] 评审提示词内容: {system_message}")
         else:
             system_message = prompt_manager.get_prompt('reviewer', domain)
-            print("⚠️  提示词ID不存在，使用默认评审提示词")
+            print(f"⚠️  [提示词] 提示词ID {prompt_id} 不存在，使用默认评审提示词")
     else:
         system_message = prompt_manager.get_prompt('reviewer', domain)
+        print(f"📝 [提示词] 未指定提示词ID，使用默认评审提示词 (领域: {domain})")
 
     return AssistantAgent(
         name="test_reviewer",
@@ -227,6 +246,37 @@ async def run_case_generation_stream(req_id: int, feature_name: str, desc: str, 
             context_info += "\n【覆盖盲区】\n"
             for gap in context['coverage_gaps']:
                 context_info += f"- {gap}\n"
+        
+        # --- 7. 知识检索 --- 
+        knowledge_context = ""
+        try:
+            # 检查是否启用知识库
+            if FEATURE_CONFIG.get("use_knowledge", True):
+                # 构建知识检索查询
+                knowledge_query = f"{feature_name} {desc}"
+                print(f"📚 [用例生成] 开始知识检索，查询内容: {knowledge_query}")
+                # 检索相关知识
+                knowledge_results = knowledge_manager.retrieve_knowledge(knowledge_query)
+                
+                if knowledge_results:
+                    print(f"📚 [用例生成] 成功检索到 {len(knowledge_results)} 条相关知识")
+                    knowledge_context = "\n\n【相关知识】\n"
+                    for i, result in enumerate(knowledge_results[:3]):
+                        if 'content' in result:
+                            content = result['content'][:200] + '...' if len(result['content']) > 200 else result['content']
+                            knowledge_context += f"{i+1}. {content}\n"
+                            print(f"📚 [用例生成] 知识 {i+1} 内容: {content}")
+                        elif 'answer' in result:
+                            content = result['answer'][:200] + '...' if len(result['answer']) > 200 else result['answer']
+                            knowledge_context += f"{i+1}. {content}\n"
+                            print(f"📚 [用例生成] 知识 {i+1} 答案: {content}")
+                    print(f"📚 [用例生成] 传递给智能体的知识上下文: {knowledge_context}")
+                else:
+                    print("📚 [用例生成] 未检索到相关知识")
+            else:
+                print("📚 [用例生成] 知识库功能已禁用，跳过知识检索")
+        except Exception as e:
+            print(f"📚 [用例生成] 知识检索异常: {str(e)}")
 
         # --- 7. 组装 AutoGen Team ---
         generator = create_test_generator(target_count, domain, prompt_id)

@@ -146,6 +146,18 @@ class CaseDB(DatabaseBase):
             if not req_id:
                 print(f"❌ [DB Error] 缺少必填参数 'requirement_id'。当前数据: {data.keys()}")
                 return "-1"  # 或者抛出异常让 Agent 重试
+            
+            # 检查用例标题是否已存在
+            case_title = data.get('case_title', '未命名用例')
+            if case_title:
+                existing_titles = self.get_existing_case_titles(req_id)
+                # 标准化标题比较（去除空格，转为小写）
+                normalized_new_title = case_title.strip().lower()
+                normalized_existing_titles = [title.strip().lower() for title in existing_titles]
+                
+                if normalized_new_title in normalized_existing_titles:
+                    print(f"⚠️ [DB Warning] 用例标题已存在，跳过保存: {case_title}")
+                    return f"DUPLICATE: {case_title}"
             # --- 1. 数据预处理 (调用辅助方法) ---
             # 无论输入多乱，这里出来的都是标准的 Python List 和 Dict
             final_steps_list = self._normalize_steps(data.get('steps', []))

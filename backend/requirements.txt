@@ -1,22 +1,57 @@
 # Web 框架
-fastapi>=0.100.0
-uvicorn>=0.23.0
-python-dotenv>=1.0.0
+fastapi==0.133.1           # 高性能 Web 框架
+uvicorn==0.41.0            # ASGI 服务器
+python-dotenv==1.2.1       # 环境变量管理
 
-# 微软 AutoGen 智能体框架 (v0.4+ 新架构)
-autogen-agentchat>=0.2
-autogen-core>=0.2
-# Google Gemini 支持 (必须带括号)
-autogen-ext[google]
-autogen-ext[openai]
+# 微软 AutoGen 智能体框架
+autogen-agentchat==0.7.5   # AutoGen 对话智能体
+autogen-core==0.7.5        # AutoGen 核心功能
+autogen-ext[google,openai]==0.7.5  # AutoGen 扩展（Google 和 OpenAI 支持）
 
 # 数据处理与导出
-pandas>=2.0.0
-openpyxl>=3.1.0  # 用于导出 Excel (.xlsx)
-xmind>=1.2.0     # 用于导出 XMind (.xmind)
+pandas==3.0.1              # 数据处理库
+openpyxl==3.1.5            # 用于导出 Excel (.xlsx)
+XMind==1.2.0               # 用于导出 XMind (.xmind)
 
 # 其他工具
-pydantic>=2.0.0
-httpx>=0.24.0
+pydantic==2.12.5           # 数据验证库
+pydantic_core==2.41.5      # Pydantic 核心库
+httpx==0.28.1              # HTTP 客户端
+
+# 依赖项
+aiofiles==25.1.0           # 异步文件操作
+annotated-doc==0.0.4        # 注解文档生成
+annotated-types==0.7.0      # 类型注解支持
+anyio==4.12.1               # 异步 I/O 库
+certifi==2026.2.25          # SSL 证书管理
+charset-normalizer==3.4.4   # 字符集检测
+click==8.3.1                # 命令行接口
+colorama==0.4.6             # 终端颜色支持
+distro==1.9.0               # 操作系统信息
+et_xmlfile==2.0.0           # Excel 文件处理
+h11==0.16.0                 # HTTP/1.1 协议实现
+httpcore==1.0.9             # HTTP 核心库
+idna==3.11                  # 国际化域名支持
+importlib_metadata==8.7.1   # 包元数据访问
+jiter==0.13.0               # JSON 解析加速
+jsonref==1.1.0              # JSON 引用解析
+numpy==2.4.2                # 数值计算库
+openai==2.24.0              # OpenAI API 客户端
+opentelemetry-api==1.39.1   # 分布式追踪 API
+pillow==12.1.1              # 图像处理库
+protobuf==5.29.6            # 协议缓冲区
+python-dateutil==2.9.0.post0 # 日期时间处理
+regex==2026.2.19            # 正则表达式库
+requests==2.32.5            # HTTP 请求库
+six==1.17.0                 # Python 2/3 兼容库
+sniffio==1.3.1              # 异步库检测
+starlette==0.52.1           # ASGI 框架（FastAPI 依赖）
+tiktoken==0.12.0            # OpenAI 令牌计数
+tqdm==4.67.3                # 进度条
+typing-inspection==0.4.2    # 类型检查工具
+typing_extensions==4.15.0   # 类型注解扩展
+tzdata==2025.3              # 时区数据
+urllib3==2.6.3              # HTTP 客户端库
+zipp==3.23.0                # ZIP 文件处理
 
 # Set-ExecutionPolicy RemoteSigned -Scope CurrentUser
