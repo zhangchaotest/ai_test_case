@@ -332,7 +332,7 @@ defineOptions({
 // 跳转到用例列表
 const goToCases = (reqId) => {
   console.log('跳转到用例列表', reqId)
-  router.push({path: '/cases', query: {reqId: reqId}})
+  router.push({path: '/features/cases', query: {reqId: reqId}})
   drawerVisible.value = false
 }
 

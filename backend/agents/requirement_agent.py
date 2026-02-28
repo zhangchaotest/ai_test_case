@@ -1,3 +1,14 @@
+#!/usr/bin/env python
+# -*- coding: UTF-8 -*-
+"""
+@Project ：ai_test_case_fast 
+@File    ：requirement_agent.py
+@Author  ：张超
+@Date    ：2025/12/22 09:20
+@Desc    ：需求分析 Agent 模块
+负责定义和运行需求分析的智能体团队 (Analyst + Reviewer)。
+Analyst 负责拆解需求，Reviewer 负责评审并入库。
+"""
 # backend/agents/requirement_agent.py
 
 import json
@@ -36,8 +47,9 @@ TOOL_NAMES_MAP = {
 
 def create_requirement_analyst():
     """
-    创建需求分析师 Agent
-    不需要任何工具 (tools=[])，它只负责思考和输出 JSON
+    创建需求分析师 Agent (Analyst)
+    职责：阅读原始需求，将其拆解为独立的、可开发测试的功能点。
+    注意：不需要任何工具 (tools=[])，它只负责思考和输出 JSON。
     """
     return AssistantAgent(
         name="req_analyst",
@@ -89,6 +101,11 @@ def create_requirement_analyst():
 
 # --- 2. 创建 Agent (Reviewer) ---
 def create_requirement_reviewer():
+    """
+    创建需求评审员 Agent (Reviewer)
+    职责：检查 Analyst 的拆解结果，评分并入库。
+    权限：拥有 save_breakdown_item 工具权限。
+    """
     return AssistantAgent(
         name="req_reviewer",
         model_client=gemini_client,
@@ -141,10 +158,14 @@ def create_requirement_reviewer():
 # -------------------------------------------------------------------------
 
 # --- 3. 流式任务入口 ---
-def run_requirement_analysis_stream(project_id: int, raw_req: str, instruction: str = ""):
+async def run_requirement_analysis_stream(project_id: int, raw_req: str, instruction: str = ""):
     """
-    需求分析流式处理（修复版）
-    使用线程池处理异步操作，避免 StreamingResponse 兼容性问题
+    需求分析流式处理任务
+    
+    :param project_id: 项目ID
+    :param raw_req: 原始需求文本
+    :param instruction: 额外的分析指令
+    :return: 异步生成器，yield SSE 格式消息
     """
     print(f"🚀 [Req Analysis] Project={project_id}")
 
@@ -156,6 +177,7 @@ def run_requirement_analysis_stream(project_id: int, raw_req: str, instruction: 
     try:
         import threading
         import queue
+        import asyncio
         
         # 创建队列用于线程间通信
         result_queue = queue.Queue()
@@ -163,8 +185,6 @@ def run_requirement_analysis_stream(project_id: int, raw_req: str, instruction: 
         def worker():
             """在后台线程中运行异步处理"""
             try:
-                import asyncio
-                
                 async def process_async():
                     """异步处理函数"""
                     analyst = create_requirement_analyst()
@@ -200,7 +220,7 @@ def run_requirement_analysis_stream(project_id: int, raw_req: str, instruction: 
                     async for sse in processor.process_stream(raw_stream):
                         result_queue.put(sse)
                     
-                    # 标记处理完成
+                    # 标记完成
                     result_queue.put(None)
                 
                 # 运行异步处理
@@ -220,14 +240,12 @@ def run_requirement_analysis_stream(project_id: int, raw_req: str, instruction: 
         # 从队列中获取结果并yield
         while True:
             try:
-                # 非阻塞获取，避免阻塞主线程
-                import time
-                time.sleep(0.1)  # 避免过于频繁的轮询
+                # 非阻塞获取，使用asyncio.sleep代替time.sleep
+                await asyncio.sleep(0.05)
                 
                 if not result_queue.empty():
                     sse = result_queue.get()
                     if sse is None:
-                        # 处理完成
                         break
                     yield sse
             except Exception as e:
@@ -236,6 +254,9 @@ def run_requirement_analysis_stream(project_id: int, raw_req: str, instruction: 
 
     except Exception as e:
         traceback.print_exc()
-        yield format_sse("message",
-                         json.dumps({"type": "log", "source": "系统错误", "content": str(e)}, ensure_ascii=False))
-        yield format_sse("finish", "{}")
+        yield format_sse("message", json.dumps({
+            "type": "log", "source": "系统异常", "content": f"❌ 发生错误: {str(e)}"
+        }, ensure_ascii=False))
+    
+    # 结束信号由 AutoGenStreamProcessor 自动发送，包含统计数据
+    # 不需要单独发送结束信号

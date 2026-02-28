@@ -2,13 +2,17 @@
 # -*- coding: UTF-8 -*-
 """
 测试维度管理模块
+负责定义和推荐测试维度 (如功能、安全、性能等)，
+帮助 Agent 生成覆盖面更广的测试用例。
 """
 
 class TestDimensionManager:
-    """测试维度管理器"""
+    """
+    测试维度管理器
+    """
     
     def __init__(self):
-        """初始化测试维度"""
+        """初始化测试维度定义"""
         self.dimensions = {
             'functional': {
                 'name': '功能测试',
@@ -44,9 +48,10 @@ class TestDimensionManager:
     
     def get_relevant_dimensions(self, req):
         """
-        获取与需求相关的测试维度
-        :param req: 需求对象
-        :return: 相关测试维度列表
+        根据需求内容，智能推荐相关的测试维度
+        
+        :param req: 需求对象 (包含描述等信息)
+        :return: 相关测试维度列表 (如 ['functional', 'security'])
         """
         relevant_dims = []
         
@@ -56,7 +61,7 @@ class TestDimensionManager:
         # 功能测试是基础，始终包含
         relevant_dims.append('functional')
         
-        # 根据需求描述判断其他维度
+        # 根据关键词匹配其他维度
         if any(keyword in desc for keyword in ['user', 'login', 'auth', 'permission']):
             relevant_dims.append('security')
         
@@ -76,8 +81,9 @@ class TestDimensionManager:
     def generate_test_matrix(self, req):
         """
         生成测试维度矩阵
+        
         :param req: 需求对象
-        :return: 测试维度矩阵
+        :return: 测试维度矩阵列表，包含维度名称、描述和优先级
         """
         relevant_dims = self.get_relevant_dimensions(req)
         matrix = []

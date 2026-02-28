@@ -2,6 +2,7 @@
 # -*- coding: UTF-8 -*-
 """
 提示词管理数据库操作模块
+负责提示词 (Prompts) 的增删改查，支持按领域和类型筛选。
 """
 
 from typing import Dict, Any, List
@@ -10,10 +11,16 @@ from .db_base import DatabaseBase
 
 
 class PromptDB(DatabaseBase):
-    """提示词数据库操作类"""
+    """
+    提示词数据库操作类
+    继承自 DatabaseBase
+    """
     
     def create_table(self):
-        """创建提示词表"""
+        """
+        创建提示词表
+        (通常由 init_db.py 统一管理，此处保留作为独立初始化的备选方案)
+        """
         sql = """
         CREATE TABLE IF NOT EXISTS prompts (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -34,10 +41,11 @@ class PromptDB(DatabaseBase):
     def get_prompts(self, domain: str = None, type: str = None):
         """
         获取提示词列表
+        支持多条件组合筛选
         
-        :param domain: 领域
-        :param type: 类型
-        :return: 提示词列表
+        :param domain: 领域 (如 base, web, api)
+        :param type: 类型 (如 generator, reviewer)
+        :return: 提示词列表 List[Dict]
         """
         sql = "SELECT * FROM prompts WHERE 1=1"
         params = []
@@ -56,10 +64,10 @@ class PromptDB(DatabaseBase):
     
     def get_prompt_by_id(self, prompt_id: int):
         """
-        根据ID获取提示词
+        根据 ID 获取单条提示词详情
         
-        :param prompt_id: 提示词ID
-        :return: 提示词信息
+        :param prompt_id: 提示词 ID
+        :return: 提示词详情字典
         """
         sql = "SELECT * FROM prompts WHERE id = ?"
         rows = self.execute_query(sql, (prompt_id,))
@@ -67,10 +75,10 @@ class PromptDB(DatabaseBase):
     
     def create_prompt(self, data: Dict[str, Any]):
         """
-        创建提示词
+        创建新提示词
         
-        :param data: 提示词数据
-        :return: 新创建的提示词ID
+        :param data: 包含 name, content, domain, type, description 的字典
+        :return: 新提示词 ID
         """
         sql = """
         INSERT INTO prompts (name, content, domain, type, description)
@@ -87,11 +95,11 @@ class PromptDB(DatabaseBase):
     
     def update_prompt(self, prompt_id: int, data: Dict[str, Any]):
         """
-        更新提示词
+        更新提示词信息
         
-        :param prompt_id: 提示词ID
-        :param data: 提示词数据
-        :return: 是否成功
+        :param prompt_id: 要更新的提示词 ID
+        :param data: 包含更新字段的字典
+        :return: 是否更新成功 (True/False)
         """
         sql = """
         UPDATE prompts SET
@@ -118,25 +126,25 @@ class PromptDB(DatabaseBase):
         """
         删除提示词
         
-        :param prompt_id: 提示词ID
-        :return: 是否成功
+        :param prompt_id: 要删除的提示词 ID
+        :return: 是否删除成功 (True/False)
         """
         sql = "DELETE FROM prompts WHERE id = ?"
         rows_affected = self.execute_update(sql, (prompt_id,))
         return rows_affected > 0
 
 
-# 实例化
+# 实例化全局对象
 prompt_db = PromptDB()
 
 
-# 初始化表结构
+# =========================================================
+# 兼容性封装 (保持向后兼容，供旧代码调用)
+# =========================================================
 def init_prompt_table():
     """初始化提示词表"""
     prompt_db.create_table()
 
-
-# 保持向后兼容
 def get_prompts(domain: str = None, type: str = None):
     return prompt_db.get_prompts(domain, type)
 

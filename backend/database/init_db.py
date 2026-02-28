@@ -2,14 +2,20 @@
 # -*- coding: UTF-8 -*-
 """
 @File    ：init_db.py
-@Desc    ：数据库初始化与表结构管理 (含字段注释)
+@Desc    ：数据库初始化与表结构管理
+该文件负责创建数据库表结构，并处理数据库迁移（Migration）逻辑。
+同时提供种子数据（Seed Data）的初始化功能。
 """
 import sqlite3
 from .base import get_conn, DB_PATH
 
 
 def init_tables():
-    """初始化所有表结构"""
+    """
+    初始化所有数据库表结构
+    如果表不存在则创建，如果存在则跳过。
+    同时包含简单的数据库迁移逻辑，用于在旧表结构上新增字段。
+    """
     conn = get_conn()
     cursor = conn.cursor()
 
@@ -17,11 +23,12 @@ def init_tables():
 
     # --------------------------------------------------------
     # 1. 项目表 (Projects)
+    # 用于管理不同的测试项目，实现数据隔离
     # --------------------------------------------------------
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS projects (
             id INTEGER PRIMARY KEY AUTOINCREMENT,   -- 项目ID (主键)
-            project_name TEXT NOT NULL UNIQUE,      -- 项目名称 (唯一)
+            project_name TEXT NOT NULL UNIQUE,      -- 项目名称 (唯一约束)
             description TEXT,                       -- 项目描述
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP -- 创建时间
         )
@@ -34,7 +41,7 @@ def init_tables():
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS functional_points (
             id INTEGER PRIMARY KEY AUTOINCREMENT,   -- 功能点ID (主键)
-            project_id INTEGER,                     -- 关联的项目ID
+            project_id INTEGER,                     -- 关联的项目ID (外键)
             module_name TEXT,                       -- 所属模块名称
             feature_name TEXT,                      -- 功能点名称
             description TEXT,                       -- 功能点详细描述
@@ -46,11 +53,12 @@ def init_tables():
 
     # --------------------------------------------------------
     # 3. 测试用例表 (Test Cases)
+    # 存储生成的测试用例，包含步骤、预期结果等详细信息
     # --------------------------------------------------------
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS test_cases (
             id INTEGER PRIMARY KEY AUTOINCREMENT,   -- 用例ID (主键)
-            requirement_id INTEGER,                 -- 关联的功能点ID
+            requirement_id INTEGER,                 -- 关联的功能点ID (外键)
             case_title TEXT,                        -- 用例标题
             pre_condition TEXT,                     -- 前置条件
             steps TEXT,                             -- 测试步骤 (JSON字符串: List[Dict])
@@ -59,7 +67,7 @@ def init_tables():
             case_type TEXT DEFAULT 'Functional',    -- 用例类型 (Functional/Negative/Boundary/Performance)
             test_data TEXT,                         -- 测试数据 (JSON字符串: Dict)
             status TEXT DEFAULT 'Draft',            -- 状态 (Draft:草稿, Active:有效, Deprecated:废弃)
-            version INTEGER DEFAULT 1,              -- 版本号
+            version INTEGER DEFAULT 1,              -- 版本号 (用于乐观锁或版本控制)
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP -- 创建时间
         )
     """)
@@ -70,25 +78,25 @@ def init_tables():
     # --------------------------------------------------------
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS requirement_breakdown (
-                                                             id                  INTEGER PRIMARY KEY AUTOINCREMENT,  -- 拆解项ID (主键)
-                                                             project_id          INTEGER,                            -- 关联的项目ID
-                                                             module_name         TEXT,                               -- 所属模块
-                                                             feature_name        TEXT,                               -- 功能名称
-                                                             description         TEXT,                               -- 功能描述
-                                                             acceptance_criteria TEXT,                               -- 验收标准 (最重要的字段，通常存为 JSON 列表字符串)
-                                                             requirement_type    TEXT,                               -- 需求类型 (新增/优化/Bug)
-                                                             priority            TEXT,                               -- 优先级 (P0/P1/P2)
-                                                             confidence_score    REAL,                               -- AI置信度评分 (0.0 - 1.0)
-                                                             review_status       TEXT,                               -- 评审状态 (Pending:待审, Pass:通过, Reject:拒绝, Discard:废弃)
-                                                             review_comments     TEXT,                               -- AI或人工的评审意见
-                                                             source_content      TEXT,                               -- 原始需求片段摘录
-                                                             created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP -- 创建时间
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,  -- 拆解项ID (主键)
+            project_id          INTEGER,                            -- 关联的项目ID
+            module_name         TEXT,                               -- 所属模块
+            feature_name        TEXT,                               -- 功能名称
+            description         TEXT,                               -- 功能描述
+            acceptance_criteria TEXT,                               -- 验收标准 (最重要的字段，通常存为 JSON 列表字符串)
+            requirement_type    TEXT,                               -- 需求类型 (新增/优化/Bug)
+            priority            TEXT,                               -- 优先级 (P0/P1/P2)
+            confidence_score    REAL,                               -- AI置信度评分 (0.0 - 1.0)
+            review_status       TEXT,                               -- 评审状态 (Pending:待审, Pass:通过, Reject:拒绝, Discard:废弃)
+            review_comments     TEXT,                               -- AI或人工的评审意见
+            source_content      TEXT,                               -- 原始需求片段摘录
+            created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP -- 创建时间
         )
     """)
 
     # --------------------------------------------------------
     # 5. 提示词表 (Prompts)
-    # 说明：用于存储和管理测试用例生成的提示词
+    # 说明：用于存储和管理测试用例生成的提示词模板
     # --------------------------------------------------------
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS prompts (
@@ -104,8 +112,8 @@ def init_tables():
     """)
 
     # --------------------------------------------------------
-    # 5. 自动迁移逻辑 (Migration)
-    # 防止旧数据库缺少字段导致报错
+    # 6. 自动迁移逻辑 (Migration)
+    # 防止旧数据库缺少字段导致报错，尝试添加新字段
     # --------------------------------------------------------
     try:
         cursor.execute("ALTER TABLE functional_points ADD COLUMN project_id INTEGER")
@@ -119,7 +127,6 @@ def init_tables():
     except sqlite3.OperationalError:
         pass
 
-
     try:
         cursor.execute("ALTER TABLE test_cases ADD COLUMN quality_score REAL")
         print("   -> 补丁: test_cases 增加 quality_score")
@@ -129,13 +136,17 @@ def init_tables():
         cursor.execute("ALTER TABLE test_cases ADD COLUMN review_comments TEXT")
         print("   -> 补丁: test_cases 增加 review_comments")
     except sqlite3.OperationalError: pass
+    
     conn.commit()
     conn.close()
     print("✅ [DB Init] 数据库初始化完成")
 
 
 def seed_data():
-    """插入默认的种子数据 (可选)"""
+    """
+    插入默认的种子数据
+    用于系统首次启动时，预置一些基础数据，如默认项目、默认提示词等。
+    """
     conn = get_conn()
     cursor = conn.cursor()
 

@@ -2,14 +2,20 @@
 # -*- coding: UTF-8 -*-
 """
 提示词管理模块
+负责管理和提供不同测试领域 (Base, Web, API) 的提示词模板。
+这些提示词用于指导 Agent 生成高质量的测试用例。
 """
 
 class PromptManager:
-    """提示词管理器"""
+    """
+    提示词管理器
+    维护了一套预定义的提示词模板，支持按领域 (domain) 和类型 (type) 获取。
+    """
     
     def __init__(self):
         """初始化提示词模板"""
         self.templates = {
+            # 基础领域：适用于通用软件测试
             'base': {
                 'generator': """
 你是一个专业的测试工程师。
@@ -76,6 +82,7 @@ class PromptManager:
 6. 保存后回复 TERMINATE。
 """
             },
+            # Web 领域：专注于 Web 应用特性
             'web': {
                 'generator': """
 【Web 应用测试补充】
@@ -130,6 +137,7 @@ class PromptManager:
 9. 检查用例是否考虑了前端特有的边界情况
 """
             },
+            # API 领域：专注于接口测试特性
             'api': {
                 'generator': """
 【API 测试补充】
@@ -212,27 +220,32 @@ class PromptManager:
             }
         }
     
-    def get_prompt(self, agent_type, domain='base', **kwargs):
+    def get_prompt(self, type: str, domain: str = 'base', **kwargs) -> str:
         """
         获取提示词
-        :param agent_type: 代理类型 ('generator' 或 'reviewer')
-        :param domain: 领域类型 ('base', 'web', 'api' 等)
-        :param kwargs: 提示词参数
-        :return: 格式化后的提示词
+        
+        :param type: 提示词类型 ('generator' 或 'reviewer')
+        :param domain: 领域 ('base', 'web', 'api')
+        :param kwargs: 格式化参数 (如 target_count)
+        :return: 格式化后的提示词字符串
         """
         # 获取基础提示词
-        base_prompt = self.templates['base'].get(agent_type, '')
+        base_prompt = self.templates['base'].get(type, "")
         
-        # 获取领域提示词
-        domain_prompt = ''
-        if domain in self.templates:
-            domain_prompt = self.templates[domain].get(agent_type, '')
+        # 获取领域特定提示词
+        domain_prompt = ""
+        if domain != 'base' and domain in self.templates:
+            domain_prompt = self.templates[domain].get(type, "")
         
-        # 合并提示词
-        combined_prompt = base_prompt + '\n' + domain_prompt
+        # 组合提示词
+        full_prompt = base_prompt + "\n" + domain_prompt
         
-        # 格式化提示词
-        for key, value in kwargs.items():
-            combined_prompt = combined_prompt.replace(f'{{{key}}}', str(value))
+        # 格式化参数
+        if kwargs:
+            try:
+                full_prompt = full_prompt.format(**kwargs)
+            except KeyError:
+                # 忽略缺失的参数
+                pass
         
-        return combined_prompt
+        return full_prompt

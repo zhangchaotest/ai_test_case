@@ -2,12 +2,16 @@
 # -*- coding: UTF-8 -*-
 """
 上下文管理模块
+负责在生成测试用例时，分析现有用例，提取测试模式和覆盖盲区，
+从而指导 Agent 生成更全面、不重复的用例。
 """
 
 from backend.database.case_db import get_existing_case_titles
 
 class ContextManager:
-    """上下文管理器"""
+    """
+    上下文管理器
+    """
     
     def __init__(self):
         """初始化"""
@@ -16,17 +20,18 @@ class ContextManager:
     def get_context(self, req_id, req):
         """
         获取上下文信息
+        
         :param req_id: 需求ID
-        :param req: 需求对象
-        :return: 上下文信息
+        :param req: 需求对象 (包含描述等信息)
+        :return: 上下文信息字典
         """
         # 获取现有用例标题
         existing_titles = get_existing_case_titles(req_id)
         
-        # 提取测试模式
+        # 提取测试模式 (如：已覆盖了哪些类型的测试)
         test_patterns = self.extract_test_patterns(existing_titles)
         
-        # 识别覆盖盲区
+        # 识别覆盖盲区 (如：还缺少哪些类型的测试)
         coverage_gaps = self.identify_coverage_gaps(req, existing_titles)
         
         return {
@@ -37,13 +42,14 @@ class ContextManager:
     
     def extract_test_patterns(self, existing_titles):
         """
-        提取测试模式
+        从现有用例标题中提取测试模式
+        
         :param existing_titles: 现有用例标题列表
         :return: 测试模式列表
         """
         patterns = []
         
-        # 分析现有用例标题，提取模式
+        # 简单的关键词匹配逻辑
         for title in existing_titles:
             if '成功' in title:
                 patterns.append('成功场景')
@@ -64,6 +70,7 @@ class ContextManager:
     def identify_coverage_gaps(self, req, existing_titles):
         """
         识别覆盖盲区
+        
         :param req: 需求对象
         :param existing_titles: 现有用例标题列表
         :return: 覆盖盲区列表
@@ -73,7 +80,7 @@ class ContextManager:
         # 基础测试类型
         base_types = ['成功场景', '失败场景', '边界值测试', '异常场景']
         
-        # 分析现有用例，识别缺失的测试类型
+        # 分析现有用例，识别已覆盖的类型
         existing_types = []
         for title in existing_titles:
             if '成功' in title:
@@ -85,7 +92,7 @@ class ContextManager:
             elif '异常' in title:
                 existing_types.append('异常场景')
         
-        # 识别缺失的测试类型
+        # 找出缺失的基础类型
         for test_type in base_types:
             if test_type not in existing_types:
                 gaps.append(test_type)

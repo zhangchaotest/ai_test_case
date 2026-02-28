@@ -35,6 +35,12 @@
   </template>
 </template>
 
+<script>
+export default {
+  name: 'SidebarItem'
+}
+</script>
+
 <script setup>
 import { ref } from 'vue'
 
