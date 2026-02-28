@@ -57,6 +57,7 @@ const hasOneShowingChild = (children = [], parent) => {
 
   // 2. 如果只有一个子路由显示
   if (showingChildren.length === 1) {
+    // 保存子路由
     onlyOneChild.value = showingChildren[0]
     return true
   }
